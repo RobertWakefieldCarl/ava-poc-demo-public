@@ -1,0 +1,256 @@
+/* Layout spec for the AVA call video. Vertical 1080x1920 is the base; body.land overrides to
+   1920x1080. Positions are absolute pixels so render(t) never has to measure anything. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  width: 1080px; height: 1920px; overflow: hidden;
+  font-family: Roboto, "Segoe UI", Arial, sans-serif;
+  background: #1b2547; -webkit-font-smoothing: antialiased;
+}
+body.land { width: 1920px; height: 1080px; }
+
+#stage { position: relative; width: 100%; height: 100%; overflow: hidden; }
+
+/* Backdrop, then waves, then scene content. Scenes are transparent so the waves stay visible
+   through them; the page colour is crossfaded on #bgBeige instead of on the scenes themselves. */
+#bgDark { position: absolute; inset: 0; background: linear-gradient(180deg, #25336a, #202a59 45%, #1b2547); }
+#bgBeige { position: absolute; inset: 0; background: #ECEBE4; opacity: 0; }
+#waves { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+
+.scene { position: absolute; inset: 0; opacity: 0; z-index: 2; }
+.dark { color: #fff; }
+.beige { color: #1F2640; }
+
+/* ---------------------------------------------------------------- shared type */
+
+.eyebrow {
+  font-size: 30px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase;
+  background: linear-gradient(90deg, #f5b335, #ff5a1f 55%, #e8435a);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.grad {
+  background: linear-gradient(90deg, #f5b335, #ff5a1f 55%, #e8435a);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.h1 { font-size: 96px; font-weight: 800; line-height: 1.06; letter-spacing: -.02em; }
+.h2 { font-size: 64px; font-weight: 800; line-height: 1.12; }
+.body { font-size: 34px; font-weight: 400; line-height: 1.45; opacity: .85; }
+.center { position: absolute; left: 90px; width: 900px; text-align: center; }
+
+.pill-outline {
+  display: inline-block; padding: 20px 38px; border-radius: 999px; font-size: 30px; font-weight: 700;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#1b2547, #1b2547) padding-box,
+    linear-gradient(90deg, #f5b335, #ff5a1f, #e8435a) border-box;
+}
+.beige .pill-outline { background: linear-gradient(#ECEBE4, #ECEBE4) padding-box, linear-gradient(90deg, #f5b335, #ff5a1f, #e8435a) border-box; }
+
+/* --------------------------------------------------------------------- intro */
+
+#introLogo { position: absolute; top: 300px; left: 290px; width: 500px; height: 120px; object-fit: contain; }
+#introEyebrow { top: 560px; }
+/* The Genesys wordmark renders as type unless a brand asset is supplied via assets.js. */
+.wordmark { display: flex; align-items: center; justify-content: center; font-weight: 800; }
+#introGenesys { position: absolute; top: 610px; left: 340px; width: 400px; height: 96px; font-size: 80px; }
+#introTitle { top: 740px; font-size: 76px; }
+#introLine1 { top: 900px; }
+#introLine2 { top: 1010px; }
+#introContext { top: 1200px; }
+#introPartner { position: absolute; top: 1700px; left: 390px; width: 300px; height: 70px; object-fit: contain; opacity: .8; }
+
+#inbound {
+  position: absolute; top: 820px; left: 140px; width: 800px; padding: 54px 48px; border-radius: 32px;
+  background: rgba(255, 255, 255, .075); border: 2px solid rgba(255, 255, 255, .2); color: #fff;
+  text-align: center;
+}
+#inbound .lbl { font-size: 38px; font-weight: 700; }
+#inbound .sub { font-size: 30px; opacity: .7; margin-top: 16px; }
+.ring {
+  width: 120px; height: 120px; border-radius: 50%; margin: 0 auto 32px;
+  border: 5px solid rgba(255, 122, 40, .85);
+}
+
+/* ---------------------------------------------------------------- call screen */
+
+#sc-call { color: #fff; }
+
+#timer {
+  position: absolute; top: 58px; left: 325px; width: 430px; height: 78px; border-radius: 999px;
+  background: rgba(255, 255, 255, .1); border: 2px solid rgba(255, 255, 255, .22);
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  font-size: 32px; font-weight: 700;
+}
+#timer .dot { width: 18px; height: 18px; border-radius: 50%; background: #ff5a1f; }
+#timer.ended .dot { background: #8a93b5; }
+
+#chip {
+  position: absolute; top: 162px; left: 90px; width: 900px;
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  font-size: 30px; font-weight: 600;
+}
+#chip .badge {
+  display: inline-flex; align-items: center; gap: 16px; padding: 16px 34px; border-radius: 999px;
+  background: rgba(54, 201, 154, .14); border: 2px solid rgba(54, 201, 154, .55); color: #d9fff1;
+}
+#chip.warn .badge { background: rgba(255, 154, 46, .14); border-color: rgba(255, 154, 46, .6); color: #ffe6c7; }
+
+.card {
+  position: absolute; left: 100px; width: 880px; padding: 34px 38px; border-radius: 26px;
+  background: rgba(255, 255, 255, .075); border: 2px solid rgba(255, 255, 255, .2);
+}
+.card.ok   { border-color: rgba(54, 201, 154, .7); }
+.card.warn { border-color: rgba(255, 154, 46, .75); }
+.card.white { background: #fff; border-color: #fff; color: #1F2640; }
+.card .ttl {
+  font-size: 26px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase;
+  opacity: .75; margin-bottom: 22px;
+}
+.card.ok .ttl { color: #5ff0bd; opacity: 1; }
+.card .row {
+  display: flex; justify-content: space-between; gap: 28px; font-size: 32px;
+  padding: 12px 0; border-top: 1px solid rgba(255, 255, 255, .12);
+}
+.card.white .row { border-top-color: rgba(31, 38, 64, .12); }
+.card .row:first-of-type { border-top: 0; }
+.card .row .v { font-weight: 700; text-align: right; }
+.card.ok .row .v { color: #5ff0bd; }
+
+#agentAv, #callerAv { position: absolute; top: 880px; width: 180px; height: 180px; border-radius: 50%; }
+#agentAv { left: 180px; }
+#callerAv { left: 540px; background: linear-gradient(160deg, #4f7cff, #2a3f8f); }
+#agentAv .ring2 {
+  position: absolute; inset: -8px; border-radius: 50%;
+  background: conic-gradient(#ff5a1f, #e8435a, #3fc8b0, #4f7cff, #ff5a1f);
+  -webkit-mask: radial-gradient(circle, transparent 60%, #000 62%);
+          mask: radial-gradient(circle, transparent 60%, #000 62%);
+}
+#agentAv .face, #callerAv .face {
+  position: absolute; inset: 0; border-radius: 50%; background: rgba(12, 18, 40, .9);
+  display: flex; align-items: center; justify-content: center; font-size: 72px; font-weight: 800;
+}
+#callerAv .face { background: transparent; color: #fff; }
+#agentAv .face img { width: 86px; height: 86px; object-fit: contain; }
+
+/* Sits in the 180px gap between the two avatars, so it must not be wider than that. */
+#bars {
+  position: absolute; top: 930px; left: 368px; width: 184px; height: 90px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+#bars i { display: block; width: 8px; border-radius: 5px; background: #8a93b5; }
+
+#names { position: absolute; top: 1078px; left: 90px; width: 900px; display: flex; }
+#names div { flex: 1; text-align: center; font-size: 28px; }
+#names .sub { opacity: .6; font-size: 24px; margin-top: 6px; }
+
+#tag {
+  position: absolute; top: 1170px; left: 90px; width: 900px; text-align: center;
+  font-size: 26px; font-weight: 800; letter-spacing: .2em;
+}
+
+#caption {
+  position: absolute; top: 1222px; left: 90px; width: 900px; padding: 26px 34px; border-radius: 24px;
+  background: rgba(10, 15, 35, .72); font-size: 46px; font-weight: 700; line-height: 1.25;
+  text-align: center;
+}
+
+#caps {
+  position: absolute; top: 1405px; left: 100px; width: 880px; padding: 30px 36px; border-radius: 26px;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#1e2850, #1e2850) padding-box,
+    linear-gradient(90deg, #f5b335, #ff5a1f, #e8435a) border-box;
+}
+#caps .eb {
+  font-size: 22px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; opacity: .9;
+}
+#caps .t { font-size: 44px; font-weight: 800; margin-top: 12px; }
+#caps .s { font-size: 27px; opacity: .78; margin-top: 10px; }
+
+/* ------------------------------------------------------------ ending screens */
+
+#sc-recap, #sc-outcome, #sc-cta { color: #fff; }
+#recapLead { top: 300px; }
+#recapList { position: absolute; top: 560px; left: 120px; width: 840px; }
+#recapList .li { display: flex; gap: 26px; font-size: 38px; line-height: 1.3; margin-bottom: 42px; }
+#recapList .ck {
+  flex: 0 0 52px; width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(54, 201, 154, .18); border: 2px solid #36c99a; color: #5ff0bd;
+  display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 800;
+}
+#outLine { top: 280px; }
+#tiles {
+  position: absolute; top: 700px; left: 100px; width: 880px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 36px;
+}
+#tiles .tile {
+  padding: 46px 36px; border-radius: 28px; border: 2px solid transparent;
+  background:
+    linear-gradient(#1e2850, #1e2850) padding-box,
+    linear-gradient(135deg, #f5b335, #ff5a1f, #e8435a) border-box;
+  text-align: center;
+}
+#tiles .tile .v { font-size: 76px; font-weight: 800; }
+#tiles .tile .l { font-size: 27px; opacity: .8; margin-top: 12px; }
+
+/* Three stacked sentences, so this headline runs smaller than the single-line ones. */
+#outroLines { top: 620px; font-size: 66px; }
+#outroGenesys { position: absolute; top: 940px; left: 340px; width: 400px; height: 96px; font-size: 80px; }
+#outroPill { top: 1140px; }
+
+#ctaPartner { position: absolute; top: 240px; left: 390px; width: 300px; height: 70px; object-fit: contain; }
+#ctaEyebrow { top: 420px; }
+/* The CTA headline is a full sentence, so it needs to wrap without colliding with the note. */
+#ctaTitle { top: 500px; font-size: 64px; }
+#ctaNote { top: 800px; }
+#phoneTile {
+  position: absolute; top: 940px; left: 140px; width: 800px; padding: 60px; border-radius: 34px;
+  border: 2px solid transparent; text-align: center;
+  background:
+    linear-gradient(#1e2850, #1e2850) padding-box,
+    linear-gradient(135deg, #f5b335, #ff5a1f, #e8435a) border-box;
+}
+#phoneTile .num { font-size: 72px; font-weight: 800; letter-spacing: .01em; }
+#ctaPowered { top: 1600px; font-size: 26px; opacity: .7; }
+#ctaGenesys { position: absolute; top: 1660px; left: 390px; width: 300px; height: 72px; font-size: 56px; color: #fff; }
+
+/* --------------------------------------------------------------- landscape */
+
+body.land .center { left: 0 !important; width: 1920px !important; }
+
+body.land #timer   { top: 56px !important; left: 255px !important; }
+body.land #chip    { top: 48px !important; left: 970px !important; width: 900px !important; }
+body.land .card    { left: 980px !important; }
+body.land #agentAv { top: 220px !important; left: 200px !important; }
+body.land #callerAv{ top: 220px !important; left: 560px !important; }
+body.land #bars    { top: 270px !important; left: 400px !important; }
+body.land #names   { top: 418px !important; left: 70px !important; width: 800px !important; }
+body.land #tag     { top: 528px !important; left: 70px !important; width: 800px !important; }
+body.land #caption { top: 578px !important; left: 70px !important; width: 820px !important; font-size: 40px !important; }
+body.land #caps    { top: 790px !important; left: 70px !important; width: 800px !important; }
+
+body.land #introLogo    { top: 200px !important; left: 710px !important; }
+body.land #introEyebrow { top: 360px !important; }
+body.land #introGenesys { top: 400px !important; left: 760px !important; }
+body.land #introTitle   { top: 520px !important; }
+body.land #introLine1   { top: 650px !important; }
+body.land #introLine2   { top: 740px !important; }
+body.land #introContext { top: 880px !important; }
+body.land #introPartner { top: 980px !important; left: 810px !important; }
+body.land #inbound      { top: 380px !important; left: 560px !important; }
+
+body.land #recapLead { top: 180px !important; }
+body.land #recapList { top: 400px !important; left: 540px !important; width: 840px !important; }
+body.land #outLine   { top: 180px !important; }
+body.land #tiles     { top: 460px !important; left: 400px !important; width: 1120px !important; grid-template-columns: 1fr 1fr 1fr 1fr !important; }
+body.land #outroLines{ top: 300px !important; }
+body.land #outroGenesys { top: 700px !important; left: 760px !important; }
+body.land #outroPill { top: 860px !important; }
+body.land #ctaPartner{ top: 110px !important; left: 810px !important; }
+body.land #ctaEyebrow{ top: 230px !important; }
+body.land #ctaTitle  { top: 300px !important; }
+body.land #ctaNote   { top: 500px !important; }
+body.land #phoneTile { top: 620px !important; left: 560px !important; }
+body.land #ctaPowered{ top: 930px !important; }
+body.land #ctaGenesys{ top: 970px !important; left: 810px !important; }

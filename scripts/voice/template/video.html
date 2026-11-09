@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AVA call video</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="stage">
+  <div id="bgDark"></div>
+  <div id="bgBeige"></div>
+  <canvas id="waves" width="1080" height="1920"></canvas>
+
+  <section class="scene beige" id="sc-intro">
+    <img id="introLogo" alt="">
+    <div class="center eyebrow" id="introEyebrow">MEET THE</div>
+    <div id="introGenesys" class="wordmark"></div>
+    <div class="center h1" id="introTitle"></div>
+    <div class="center h1" id="introLine1"></div>
+    <div class="center h1 grad" id="introLine2"></div>
+    <div class="center body" id="introContext"></div>
+    <img id="introPartner" alt="">
+  </section>
+
+  <section class="scene dark" id="sc-call">
+    <div id="inbound"><div class="ring"></div><div class="lbl"></div><div class="sub">Answering…</div></div>
+    <div id="timer"><span class="dot"></span><span class="txt">Live call 0:00</span></div>
+    <div id="chip"><span class="badge"></span></div>
+    <div id="cardSlots"></div>
+    <div id="agentAv"><div class="ring2"></div><div class="face"></div></div>
+    <div id="callerAv"><div class="face"></div></div>
+    <div id="bars"></div>
+    <div id="names"><div><b class="n1"></b><div class="sub r1"></div></div><div><b class="n2"></b><div class="sub r2"></div></div></div>
+    <div id="tag"></div>
+    <div id="caption"></div>
+    <div id="caps"><div class="eb">Agentic Virtual Agent · Capability</div><div class="t"></div><div class="s"></div></div>
+  </section>
+
+  <section class="scene dark" id="sc-recap">
+    <div class="center h2" id="recapLead"></div>
+    <div id="recapList"></div>
+  </section>
+
+  <section class="scene dark" id="sc-outcome">
+    <div class="center h1" id="outLine"></div>
+    <div id="tiles"></div>
+  </section>
+
+  <section class="scene beige" id="sc-outro">
+    <div class="center h1" id="outroLines"></div>
+    <div id="outroGenesys" class="wordmark"></div>
+    <div class="center" id="outroPill"><span class="pill-outline"></span></div>
+  </section>
+
+  <section class="scene dark" id="sc-cta">
+    <img id="ctaPartner" alt="">
+    <div class="center eyebrow" id="ctaEyebrow"></div>
+    <div class="center h1" id="ctaTitle"></div>
+    <div class="center body" id="ctaNote"></div>
+    <div id="phoneTile"><div class="num"></div></div>
+    <div class="center" id="ctaPowered">Powered by</div>
+    <div id="ctaGenesys" class="wordmark"></div>
+  </section>
+</div>
+
+<script src="data.js"></script>
+<script src="scenes.js"></script>
+<script src="assets.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

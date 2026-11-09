@@ -1,0 +1,137 @@
+{
+  "_comment": [
+    "customer.* comes from assets/brand.json — copy pageImage verbatim, the capture writes",
+    "page.jpg by default. ava.channel is load-bearing: it drives the transcript's channel line,",
+    "the page header and the widget defaults, so a voice AVA is never called web chat. Set it to",
+    "'voice', 'chat' or 'messaging'. Omit the whole widget block to accept the channel's defaults.",
+    "Omit disclaimer unless the default wording doesn't fit the data this demo shows."
+  ],
+  "customer": {
+    "name": "Acme Dental",
+    "siteUrl": "https://www.acmedental.com",
+    "pageImage": "assets/page.jpg",
+    "logoFile": "assets/logo.svg",
+    "logoBackground": "#ffffff",
+    "brandColor": "#0b5c8a",
+    "brandColorDark": "#073f5e"
+  },
+  "ava": {
+    "name": "Acme Member Assistant",
+    "slug": "acme-member-assistant",
+    "agentId": "00000000-0000-0000-0000-000000000000",
+    "version": "3.0",
+    "channel": "chat"
+  },
+  "widget": {
+    "title": "Chat with Acme",
+    "subtitle": "AI assistant · replies instantly",
+    "inputPlaceholder": "Type your message…",
+    "footer": "Powered by Genesys Cloud AVA"
+  },
+  "disclaimer": [
+    "Recorded against the published AVA using mock Data Actions. Every member ID, plan and",
+    "balance in this conversation is demonstration data, not a live customer record."
+  ],
+  "recordedAt": "2026-01-01T00:00:00Z",
+  "useCases": [
+    {
+      "id": "check-benefits",
+      "title": "Check plan benefits",
+      "summary": "Member authenticates and asks what their plan covers.",
+      "mockData": [
+        { "label": "Member ID", "value": "MBR-44821" },
+        { "label": "Plan", "value": "PPO Plus" },
+        { "label": "Remaining annual max", "value": "$1,240" }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "useCaseId": "check-benefits",
+      "role": "agent",
+      "text": "Hi! I'm the Acme Member Assistant. I can help with benefits, claims and finding a dentist. What can I do for you?"
+    },
+    {
+      "useCaseId": "check-benefits",
+      "role": "customer",
+      "text": "I want to know if a crown is covered on my plan."
+    },
+    {
+      "useCaseId": "check-benefits",
+      "role": "agent",
+      "text": "Happy to check that. Can I start with your member ID?"
+    },
+    {
+      "useCaseId": "check-benefits",
+      "role": "customer",
+      "text": "It's MBR-44821."
+    },
+    {
+      "useCaseId": "check-benefits",
+      "role": "agent",
+      "text": "Thanks! You're on the PPO Plus plan. Crowns are covered at 50% after your deductible, and you have $1,240 left on your annual maximum.",
+      "actions": [
+        {
+          "type": "tool",
+          "name": "verify_member",
+          "label": "verified",
+          "input": { "member_id": "MBR-44821" },
+          "output": { "session_token": "***" },
+          "status": "ok"
+        },
+        {
+          "type": "tool",
+          "name": "get_plan_benefits",
+          "label": "PPO Plus",
+          "input": { "benefit_category": "crown" },
+          "output": { "plan": "PPO Plus", "coverage_pct": 50, "remaining_annual_max": "1240.00" },
+          "status": "ok"
+        }
+      ],
+      "note": "Optional presenter note — shown in the transcript only, not in the demo HTML."
+    }
+  ],
+  "voice": {
+    "_comment": "Set format, phoneNumber, callerName and tts; build-voice-video.mjs writes the rest.",
+    "tts": {
+      "agentVoice": "Rachel",
+      "callerVoice": "Adam",
+      "model": "eleven_v4_turbo"
+    },
+    "source": "transcript",
+    "videoFile": "assets/call-demo.mp4",
+    "poster": "assets/call-poster.png",
+    "format": "9x16",
+    "title": "Inbound call — crown coverage and claim status",
+    "summary": "One call: two intents and an interruption, resolved without a transfer.",
+    "phoneNumber": "+1 555 010 0199",
+    "agentName": "Agentic Virtual Agent",
+    "callerName": "Member",
+    "capabilities": [
+      {
+        "at": 12,
+        "title": "Multiple inputs in one sentence",
+        "subtitle": "Member packs two requests into one turn"
+      },
+      {
+        "at": 46,
+        "title": "Guardrails",
+        "subtitle": "Verifies identity before reading the record"
+      },
+      {
+        "at": 78,
+        "title": "Action execution",
+        "subtitle": "Looks up the plan and the open claim"
+      }
+    ],
+    "outcomes": [
+      { "label": "Requests resolved", "value": "2/2" },
+      { "label": "Transfers to a human", "value": "0" }
+    ],
+    "transcript": [
+      { "at": 6, "speaker": "agent", "text": "Thanks for calling Acme Dental. How can I help?" },
+      { "at": 12, "speaker": "caller", "text": "Is a crown covered, and what happened with my claim?" },
+      { "at": 46, "speaker": "agent", "text": "I can check both. Can I start with your member ID?" }
+    ]
+  }
+}

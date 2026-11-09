@@ -1,0 +1,17 @@
+# Only the sealed key belongs in the repo. Everything else under secrets/ is a mistake:
+# an unsealed key committed once stays recoverable in git history forever.
+secrets/*
+!secrets/*.sealed.json
+
+# Never commit a raw key file, whatever it is called or wherever it lands.
+*.key
+*.pem
+.env
+.env.*
+
+node_modules/
+
+# Demo output belongs in the customer's axl-sessions folder, not in the skill.
+poc-demo/
+voice-build/
+frames/
