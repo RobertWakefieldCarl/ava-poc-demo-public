@@ -198,6 +198,14 @@ function main() {
   const shownCaps = deoverlap(caps);
   const capsUsed = [...new Set(shownCaps.map((c) => c.title))];
   const toolCalls = turns.reduce((n, t) => n + ((t.msg.actions || []).length), 0);
+  const humanTransfers = turns.filter((t) => {
+    if (t.msg.role !== 'agent') return false;
+    const acts = t.msg.actions || [];
+    if (acts.some((a) => a.type === 'escalation' || a.name === 'escalation')) return true;
+    return /pass you to a member services representative|connect you with a member services representative/i.test(
+      t.msg.text || '',
+    );
+  }).length;
   const capLine = {
     'Multiple inputs in one sentence': 'Understood several requests in a single sentence',
     'Turn interruption': 'Handled an interruption and picked the task back up',
@@ -244,7 +252,7 @@ function main() {
       tiles: [
         { value: `${useCases.length}/${useCases.length}`, label: 'Requests resolved' },
         { value: String(toolCalls), label: 'Actions executed' },
-        { value: '0', label: 'Transfers to a human' },
+        { value: String(humanTransfers), label: 'Transfers to a human' },
         { value: `${Math.round(data.callDur)}s`, label: 'Hello to resolved' },
       ],
     },

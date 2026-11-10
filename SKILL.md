@@ -3,8 +3,8 @@ name: ava-poc-demo
 description: >-
   Records a multi-use-case conversation against a published Genesys Cloud AVA using its mock Data
   Action data, then renders a demo page that looks like the customer's own website with a branded
-  chat widget carrying the customer's logo, and/or a branded call video built from a recorded phone
-  call, plus a Markdown transcript. Use when asked for a POC demo, customer demo page, demo
+  chat widget carrying the customer's logo, plus a branded call video of that same conversation and
+  a Markdown transcript. Use when asked for a POC demo, customer demo page, demo
   recording, demo HTML, chat replay, AVA product/marketing video, call video, or a shareable
   walkthrough of an AVA built with the ava-* and axl-* skills.
 disable-model-invocation: true
@@ -24,14 +24,17 @@ Produces a **shareable demo of a published AVA** in two channels:
 | Channel | What it renders | Switch |
 |---------|-----------------|--------|
 | **Digital** | A real conversation recorded against the live agent, replayed as an animated web chat on a screenshot of the **customer's own web page**, with the **customer's logo in the chat widget** | `--digital` |
-| **Voice** | A branded MP4 built from a recorded phone call, played back with capability chapters and a seekable call transcript | `--voice` |
-| **Both** | Both, behind a channel switcher in one page (**default**) | `--both` |
+| **Voice** | A branded MP4 of that same conversation, spoken aloud and played back with capability chapters and a seekable call transcript | `--voice` |
+| **Both** | Both, behind a channel switcher in one page (**default — build this unless told otherwise**) | `--both` |
+
+Both channels come from the **one** conversation recorded in Step 3, so they tell the same story
+and voice costs no extra recording. Build both every time unless the facilitator narrows it.
 
 > **Digital channel vs voice AVA — two different things.** `ava.channel` (`voice`, `chat`,
 > `messaging`) says what the real AVA runs on and drives the *wording* everywhere, so a voice AVA's
 > replay is labelled "Recorded phone call · shown here as a transcript". The `--digital/--voice`
-> switches choose which *artifact* to render. A voice AVA with no call video still produces an
-> honest digital demo; adding `--voice` puts the actual call on the page as video.
+> switches choose which *artifact* to render. A chat AVA still gets a voice panel if you build one,
+> and a voice AVA still gets an honest digital panel — the channel wording stays truthful either way.
 
 > **Lifecycle position:** [build](../ava-build/SKILL.md) → [test](../ava-test/SKILL.md) →
 > [evaluate](../ava-evaluate/SKILL.md) → **poc-demo** → [axl-takehome](../axl-takehome/SKILL.md)
@@ -125,10 +128,13 @@ Resolve, in this order:
    configuration. The digital panel always *renders* as a chat widget, because a transcript is the
    only honest way to show a phone call on a page, but the wording throughout must match the real
    channel. Record it as `ava.channel`; everything downstream reads it.
-3c. **Demo type** — ask the facilitator which artifact they want, unless they already said:
-   **digital**, **voice** or **both** (the default). Pick `--voice` or `--both` only when a call
-   recording exists or can be made; building the video is the most expensive step in this skill.
-   For a voice AVA with no usable recording, say so and produce the digital demo.
+3c. **Demo type** — **assume `--both`.** Build the digital *and* voice channels unless the
+   facilitator explicitly asked for one of them ("chat only", "just the video", `--digital`,
+   `--voice`). Do not ask which they want, and do not narrow the scope because voice looks
+   expensive — the call video is built from the Step 3 transcript, so it needs no call recording
+   and no extra conversation. Narrow to `--digital` only when the facilitator says so, or when
+   Step 4v genuinely cannot run (no ElevenLabs key, no ffmpeg) — in which case say which
+   prerequisite is missing rather than silently dropping the channel.
 4. **Use cases** — read `design-artifact.json` (`tools`, `role`) and any scenarios in
    `.ava-lifecycle/<slug>/test-cases/`. Propose the set to cover and let the facilitator adjust.
 5. **Mock data** — read the mock values the AVA will actually return, so the conversation uses inputs
@@ -365,7 +371,7 @@ the page can sit on screen while the presenter talks.
 
 ## Invocation examples
 
-- `/ava-poc-demo` — resolve the current lifecycle and walk the workflow
+- `/ava-poc-demo` — resolve the current lifecycle and walk the workflow, building **both** channels
 - "Build a POC demo for Acme Dental covering benefits, claims and finding a dentist"
 - "Chat demo only, no video" (`--digital`)
 - "Make a product video from this call recording" (recorded-call route, then `--voice`)

@@ -54,6 +54,7 @@ function parseArgs(argv) {
     else if (a === '--format') out.format = String(argv[++i]).toLowerCase() === 'png' ? 'png' : 'jpeg';
     else if (a === '--quality') out.quality = Number(argv[++i]);
     else if (a === '--max-height') out.maxHeight = Number(argv[++i]);
+    else if (a === '--headed') out.headed = true;
     else if (a === '--help' || a === '-h') out.help = true;
   }
   return out;
@@ -73,6 +74,7 @@ Options:
   --format <jpeg|png>    Screenshot format (default jpeg — keeps demo.html emailable)
   --quality <1-100>      JPEG quality (default 82; ignored for png)
   --max-height <px>      Trim a very long full-page capture (default 4200, 0 disables)
+  --headed               Use a visible installed Chrome — for sites that block headless browsers
 `;
 
 
@@ -518,7 +520,10 @@ async function main() {
   fs.mkdirSync(args.outDir, { recursive: true });
 
   // --allow-file-access-from-files lets the logo-luminance pass read back a file:// canvas.
-  const browser = await chromium.launch({ args: ['--allow-file-access-from-files'] });
+  const browser = await chromium.launch({
+    args: ['--allow-file-access-from-files'],
+    ...(args.headed ? { headless: false, channel: 'chrome' } : {}),
+  });
   const context = await browser.newContext({
     viewport: { width: args.width, height: args.height },
     deviceScaleFactor: 2,
