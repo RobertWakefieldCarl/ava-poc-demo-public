@@ -115,8 +115,8 @@ Because we generated the audio there is no silence to tighten, so the time map i
 - the capability banner, from the shape of each turn — several asks in one breath, a barge-in
   ("wait", "hold on", "actually"), a tool call, a verification-flavoured tool name, and the close
 - recap lines, one per capability actually shown
-- outcome tiles that only count what the recording contains: use cases, tool calls, zero transfers
-  and the call's real duration
+- outcome tiles that only count what the recording contains: use cases, tool calls, the call's real
+  duration, and the number of turns that actually escalated to a human
 
 Overlapping capability windows are clipped so only one banner is ever on screen. What the planner
 cannot infer is tone, emphasis and anything about the customer's business — that is the edit pass.
@@ -152,6 +152,28 @@ Persona for this AVA, use that voice here so the demo sounds like the deployed a
 > The transcript is the AVA's own words from Step 3. Do not rewrite lines to make the synthesized
 > read flow better — if a reply sounds wrong spoken aloud, that is a finding for the AVA's voice
 > guidelines, not something to paper over in the video.
+
+### Expressive AVAs: `speechText`
+
+An AVA tuned by [ava-voice-humanizer](../../ava-voice-humanizer/SKILL.md) replies with ElevenLabs
+audio tags inline — `"[warmly] Hi James, this is an AI assistant..."`. The tags are real: on
+`eleven_v4_turbo` a `[whispers]` line comes back at roughly half the loudness of the same sentence
+untagged. But they are direction, not speech, and a caption or chat bubble reading `[warmly]` is a
+defect.
+
+Give those messages both forms. `speechText` is sent to ElevenLabs and keys the synthesis cache;
+`text` is what every caption, transcript line and chat bubble shows:
+
+```json
+{
+  "role": "agent",
+  "speechText": "[warmly] Hi James, this is an AI assistant calling on behalf of TELUS.",
+  "text": "Hi James, this is an AI assistant calling on behalf of TELUS."
+}
+```
+
+Keep `speechText` verbatim from Cicero, and let `text` differ from it only by removing the tags.
+Omit `speechText` and nothing changes — `text` is spoken as before.
 
 ---
 
@@ -192,8 +214,8 @@ These cost hours to rediscover:
 - Allowed downloads: GitHub release assets, PyPI, raw.githubusercontent.com. Hugging Face and the
   official Whisper CDN are blocked.
 - Rough speeds on 1 CPU: Whisper-turbo int8 transcribes about 1 s of audio per 2–3 s; Playwright
-  renders about 12–15 frames/s at 1080×1920 JPEG; a libx264 `veryfast` encode of 4 minutes takes
-  about 4–5 min.
+  renders about 12–15 frames/s at 1080×1920 JPEG; a libx264 `slow` encode of 4 minutes takes about
+  5–6 min. Rendering the frames, not encoding them, is the long pole either way.
 
 ### Setup
 
@@ -506,6 +528,35 @@ two and a half minutes — too long to use as your feedback loop.
 Other flags: `--frames-only` to stop before encoding, `--keep-frames` to inspect them, `--crf` for
 quality. The `adelay` always equals the intro length, which the engine exposes as `window.INTRO`.
 Verify the result with `ffprobe`: duration, 1080×1920 or 1920×1080, and an audio stream present.
+
+#### Keeping the file small
+
+The MP4 is linked rather than inlined, so it sets the weight of the whole handoff bundle. The
+defaults are tuned for this content — flat UI panels, slow fades, a lot of near-static hold — and
+produce about **7.5 MB for a 91 s portrait video**:
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `-crf` | `25` | Captions stay sharp well past this; measured SSIM 0.993 against the source frames |
+| `-preset` | `slow` | Rendering frames dominates the wall clock, so a slower encode is nearly free |
+| `-tune animation` | on | Leans on B-frames and deblocking rather than preserving gradient dither |
+| Frame JPEG quality | 96 | Compression noise in the intermediates costs more than it saves |
+| Audio | mono 96k AAC | The mix is mono 24 kHz speech; stereo at 160k paid twice for one channel |
+
+Two dials if a particular video still comes out too heavy:
+
+- **`--crf 28`** — 5.5 MB on the same 91 s video, a further 25%. Text remains crisp; gradients are
+  what give out first. With `--keep-frames` you can re-encode at a new CRF in seconds, without
+  re-rendering a single frame — do that rather than starting over.
+- **`--png-frames`** — lossless intermediates: 6.5 MB, a further 12%, and slightly cleaner, for
+  1.8× the render time. Worth it for a final render you expect to reuse. The saving is larger on
+  wave-heavy stretches than the whole-video figure suggests, because the static scenes dilute it.
+
+Counter-intuitive results worth not re-deriving: a **lower** CRF with a slower preset makes the file
+*bigger*, because CRF holds quality rather than size and the slower preset keeps more of the wave
+and gradient detail. Tightening the keyframe interval to make the demo page's click-to-seek snappier
+costs 26% at `-g 60`, which is not worth paying — browsers seek accurately regardless, just a little
+slower.
 
 ---
 

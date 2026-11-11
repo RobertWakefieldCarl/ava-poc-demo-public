@@ -22,6 +22,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = path.join(HERE, 'template');
 const FPS = 30;
 
+// Intermediate frames are thrown away after the encode, so their only job is to not hand x264
+// compression noise to chew through. Measured on a 91s portrait render: q90 frames encode to
+// 1.28 MB over a sample stretch, q96 to 1.11 MB and lossless PNG to 0.99 MB — so the cheap jump
+// from 90 to 96 buys most of the saving, while PNG costs roughly double the render time.
+const FRAME_QUALITY = 96;
+
 const USAGE = `
 Usage: node render-call.mjs --recording <recording.json> [options]
 
@@ -30,14 +36,15 @@ Usage: node render-call.mjs --recording <recording.json> [options]
   --video <file>        MP4 to write (default: <recording dir>/assets/call-demo.mp4)
   --contact-sheet       Render 12 sample frames into review/ and stop
   --frames-only         Render frames but skip the encode
-  --crf <n>             x264 quality, lower is better (default: 21)
+  --crf <n>             x264 quality, lower is better (default: 25 — raise it to shrink the file)
+  --png-frames          Lossless intermediate frames: ~12% smaller MP4, ~1.8x the render time
   --keep-frames         Leave the frames/ folder in place after encoding
 
 Requires Playwright (Chromium) and ffmpeg on PATH.
 `;
 
 function parseArgs(argv) {
-  const out = { crf: '21' };
+  const out = { crf: '25' };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--recording') out.recording = argv[++i];
@@ -46,6 +53,7 @@ function parseArgs(argv) {
     else if (a === '--crf') out.crf = argv[++i];
     else if (a === '--contact-sheet') out.sheet = true;
     else if (a === '--frames-only') out.framesOnly = true;
+    else if (a === '--png-frames') out.pngFrames = true;
     else if (a === '--keep-frames') out.keepFrames = true;
     else if (a === '--help' || a === '-h') out.help = true;
   }
@@ -159,15 +167,17 @@ async function main() {
   fs.rmSync(frameDir, { recursive: true, force: true });
   fs.mkdirSync(frameDir, { recursive: true });
 
+  const ext = args.pngFrames ? 'png' : 'jpg';
+  const shot = args.pngFrames ? { type: 'png' } : { type: 'jpeg', quality: FRAME_QUALITY };
+
   const frames = Math.ceil(total * FPS) + 1;
   console.log(`render-call: ${frames} frames · ${total.toFixed(1)}s · ${W}x${H}`);
   const started = Date.now();
   for (let f = 0; f < frames; f += 1) {
     await page.evaluate(`render(${f / FPS})`);
     await page.screenshot({
-      path: path.join(frameDir, `${String(f).padStart(5, '0')}.jpg`),
-      type: 'jpeg',
-      quality: 90,
+      path: path.join(frameDir, `${String(f).padStart(5, '0')}.${ext}`),
+      ...shot,
     });
     if (f % 60 === 0 || f === frames - 1) {
       const pct = ((f + 1) / frames) * 100;
@@ -196,13 +206,19 @@ async function main() {
   execFileSync(
     'ffmpeg',
     ['-y', '-hide_banner', '-loglevel', 'error',
-     '-framerate', String(FPS), '-i', path.join(frameDir, '%05d.jpg'),
+     '-framerate', String(FPS), '-i', path.join(frameDir, `%05d.${ext}`),
      '-i', path.join(outDir, 'call-mix.wav'),
      // The audio starts when the call scene does, not at frame 0.
      '-filter_complex', `[1:a]adelay=${Math.round(intro * 1000)}|${Math.round(intro * 1000)},apad[a]`,
      '-map', '0:v', '-map', '[a]',
-     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(args.crf), '-pix_fmt', 'yuv420p',
-     '-c:a', 'aac', '-b:a', '160k', '-shortest', '-movflags', '+faststart', video],
+     // -tune animation suits flat UI panels and slow fades: it leans on B-frames and stronger
+     // deblocking instead of spending bits holding on to gradient dither. The slower preset is
+     // affordable because rendering the frames, not encoding them, dominates the wall clock.
+     '-c:v', 'libx264', '-preset', 'slow', '-tune', 'animation',
+     '-crf', String(args.crf), '-pix_fmt', 'yuv420p',
+     // The mix is mono 24 kHz speech, so stereo at 160k was paying twice for one channel.
+     '-c:a', 'aac', '-ac', '1', '-b:a', '96k',
+     '-shortest', '-movflags', '+faststart', video],
     { stdio: 'inherit' }
   );
 
@@ -212,9 +228,13 @@ async function main() {
 
   if (!args.keepFrames) fs.rmSync(frameDir, { recursive: true, force: true });
 
-  const mb = (fs.statSync(video).size / 1048576).toFixed(1);
-  console.log(`  video   ${video} (${mb} MB, ${total.toFixed(1)}s)`);
+  const mb = fs.statSync(video).size / 1048576;
+  console.log(`  video   ${video} (${mb.toFixed(1)} MB, ${total.toFixed(1)}s, crf ${args.crf})`);
   console.log(`  poster  ${poster}`);
+  if (mb > 12) {
+    console.log(`  note: ${mb.toFixed(0)} MB is large to send. Re-encode smaller without re-rendering:`);
+    console.log(`        --crf ${Number(args.crf) + 3}  (frames are kept with --keep-frames)`);
+  }
 }
 
 main().catch((err) => fail(err.message));
