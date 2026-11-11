@@ -227,6 +227,9 @@ function main() {
     // widget uses. capture-customer-page.mjs measured this; brand.json is the fallback source.
     logoBackground: customer.logoBackground || brand.logoBackground || null,
     brandColor: customer.brandColor || '#ff5a1f',
+    // The background texture sets about half the MP4's size. 26 lines at 0.12 alpha is the old,
+    // heavier look; 0 lines drops it entirely. See voice-video.md §8.
+    waves: voice.waves || { lines: 12, alpha: 0.12 },
     intro: {
       eyebrow: 'MEET THE',
       title: 'Agentic Virtual Agent',

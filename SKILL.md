@@ -266,10 +266,15 @@ Agree the aspect ratio and the agent's voice with the facilitator before startin
 `voice-build/scenes.json`** — it is the editorial layer, inferred but meant to be tuned. Re-run
 `scripts/voice/render-call.mjs` alone after editing it; that skips synthesis.
 
-The encode is tuned for this content, so a 90-second portrait video lands around 7–8 MB. If a
-particular one comes out heavy, re-render with `--keep-frames` and then re-encode at `--crf 28`
-for roughly 20% less — seconds, not another full render. Details and the measurements behind the
-defaults are in [voice-video.md](references/voice-video.md) §8.
+**The size is projected before the render starts**, which matters because a four-minute
+conversation is a ten-minute render. If the projection exceeds 20 MB the build stops and prints the
+options; take them to the facilitator rather than silently shipping a huge attachment or silently
+degrading their video. `--accept-size` proceeds as-is, `--crf 28` trades quality for about 25%,
+lowering `waves` in `scenes.json` saves about half with no content change, and a shorter
+conversation is the editorial option. `--estimate` reports the projection without rendering.
+
+A 90-second portrait video lands around 7–8 MB and a 3½-minute landscape one around 14 MB. Details
+and the measurements behind the defaults are in [voice-video.md](references/voice-video.md) §8.
 
 To build from a **real call recording** instead, follow §3–§5 of
 [voice-video.md](references/voice-video.md). That route is manual and takes hours; use it only when

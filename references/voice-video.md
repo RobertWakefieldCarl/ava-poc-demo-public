@@ -529,6 +529,26 @@ Other flags: `--frames-only` to stop before encoding, `--keep-frames` to inspect
 quality. The `adelay` always equals the intro length, which the engine exposes as `window.INTRO`.
 Verify the result with `ffprobe`: duration, 1080×1920 or 1920×1080, and an audio stream present.
 
+#### Checking the size before you render
+
+A long conversation produces a long video, and a 4-minute render is ten minutes of work to discover
+it is too big to send. Project it first — this takes about 30 seconds:
+
+```bash
+node "<SkillDir>/scripts/voice/render-call.mjs" --recording <recording.json> --estimate
+```
+
+The duration is already exact at this point (the call length plus 37.1 s of fixed intro, recap,
+outcome, outro and CTA), and because the background animates under every scene the bitrate barely
+varies — so the estimate renders a few seconds of real frames at two points, encodes them, and
+scales up. Validated against finished renders at 29.3 MB projected / 28.1 MB actual and 16.4 / 14.4.
+It reads up to about 15% high, because both probes sit near a scene fade; treat it as an upper bound.
+
+`build-voice-video.mjs` runs this automatically and **stops before rendering** if the projection
+exceeds `--max-mb` (default 20), printing the options below. Agree the trade with the facilitator
+rather than silently shipping a 30 MB attachment or silently degrading their video. `--accept-size`
+proceeds anyway; `--estimate` reports and stops.
+
 #### Keeping the file small
 
 The MP4 is linked rather than inlined, so it sets the weight of the whole handoff bundle. The
@@ -543,7 +563,30 @@ produce about **7.5 MB for a 91 s portrait video**:
 | Frame JPEG quality | 96 | Compression noise in the intermediates costs more than it saves |
 | Audio | mono 96k AAC | The mix is mono 24 kHz speech; stereo at 160k paid twice for one channel |
 
-Two dials if a particular video still comes out too heavy:
+#### The background is about half the file
+
+Worth understanding before you reach for anything else. The wave canvas is thin antialiased colour
+lines spread across the whole frame, so **every** frame costs bits to code even when nothing else
+moves. Measured on a 220 s 1080p render by hiding the canvas and re-encoding the same frames:
+
+| 10 s stretch | As shipped before | Background hidden | Its share |
+|---|---|---|---|
+| Mid-call, with captions, cards and chips | 112 KB/s | 27 KB/s | 76% |
+| Recap — static text, only the background moving | 145 KB/s | 26 KB/s | 82% |
+
+The recap cost *more* than the live conversation. Dropping to **12 lines at 0.12 alpha** (now the
+default) took that real video from 28.1 MB to 14.4 MB with no content change and the texture still
+reading on screen. Tune it per demo in `scenes.json`:
+
+```json
+"waves": { "lines": 12, "alpha": 0.12 }
+```
+
+`26` / `0.22` restores the old heavier look; `"lines": 0` removes the background entirely and is the
+single biggest saving available. Note that *slowing* the animation barely helps — stepping it at
+5 fps recovered only 20%, because the cost is the fine detail, not the motion.
+
+#### Further dials if a video is still too heavy:
 
 - **`--crf 28`** — 5.5 MB on the same 91 s video, a further 25%. Text remains crisp; gradients are
   what give out first. With `--keep-frames` you can re-encode at a new CRF in seconds, without

@@ -199,19 +199,28 @@ for (const seg of D.segs) {
 
 /* ------------------------------------------------------------------- waves */
 
+// The decorative background is the single biggest driver of MP4 size: thin antialiased colour
+// lines are fine detail spread over the whole frame, so every frame costs bits to code even when
+// nothing else on screen moves. Measured on a 220 s 1080p render, the background was ~80% of the
+// file, and a static recap scene cost *more* than the live conversation. Halving the line count
+// and dropping the contrast cuts the finished video roughly in half while still reading as
+// texture. Raise these in scenes.json ("waves": { "lines": 26, "alpha": 0.22 }) for the old,
+// heavier look. Animating them more slowly does not help — the cost is the detail, not the motion.
+const WAVES = { lines: 12, alpha: 0.12, width: 2, ...(S.waves || {}) };
+
 function drawWaves(t, alpha, band) {
   wx.clearRect(0, 0, W, H);
-  if (alpha <= 0) return;
+  if (alpha <= 0 || WAVES.lines <= 0) return;
   const colors = ['#ff5a1f', '#f5b335', '#e8435a', '#3fc8b0', '#4f7cff'];
   // Subtle enough that captions and cards stay the focus.
-  wx.globalAlpha = alpha * 0.22;
-  wx.lineWidth = 2;
-  for (let i = 0; i < 26; i += 1) {
+  wx.globalAlpha = alpha * WAVES.alpha;
+  wx.lineWidth = WAVES.width;
+  for (let i = 0; i < WAVES.lines; i += 1) {
     wx.beginPath();
     wx.strokeStyle = colors[i % colors.length];
     const amp = 26 + (i % 7) * 9;
     const phase = t * 0.25 + i * 0.37;
-    const y0 = band[0] + ((band[1] - band[0]) * i) / 26;
+    const y0 = band[0] + ((band[1] - band[0]) * i) / WAVES.lines;
     for (let x = 0; x <= W; x += 12) {
       const y = y0 + Math.sin(x / 190 + phase) * amp + Math.sin(x / 70 - phase * 1.4) * (amp / 4);
       if (x === 0) wx.moveTo(x, y);

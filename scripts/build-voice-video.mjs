@@ -30,6 +30,10 @@ Usage: node build-voice-video.mjs --recording <recording.json> [options]
   --caller-voice <v>    ElevenLabs voice name or id for the caller
   --replan              Rebuild scenes.json, discarding hand edits
   --contact-sheet       Stop after sample frames so you can check the layout
+  --estimate            Project the finished size and stop, without rendering
+  --max-mb <n>          Stop before rendering if the projection exceeds this (default: 20)
+  --accept-size         Render regardless of the projection
+  --crf <n>             Pass a quality level through to the encode (default: 25)
   --dry-run             Report the synthesis cost and stop
 
 Requires ELEVENLABS_API_KEY, Playwright (Chromium) and ffmpeg.
@@ -45,6 +49,10 @@ function parseArgs(argv) {
     else if (a === '--caller-voice') out.callerVoice = argv[++i];
     else if (a === '--replan') out.replan = true;
     else if (a === '--contact-sheet') out.sheet = true;
+    else if (a === '--estimate') out.estimate = true;
+    else if (a === '--max-mb') out.maxMb = Number(argv[++i]);
+    else if (a === '--accept-size') out.acceptSize = true;
+    else if (a === '--crf') out.crf = argv[++i];
     else if (a === '--dry-run') out.dryRun = true;
     else if (a === '--help' || a === '-h') out.help = true;
   }
@@ -57,6 +65,18 @@ function run(script, argv) {
     console.error(`build-voice-video: ${path.basename(script)} failed (exit ${r.status}).`);
     process.exit(r.status || 1);
   }
+}
+
+/** Same, but hands back what the stage printed so the projection can be read out of it. */
+function runCapture(script, argv) {
+  const r = spawnSync(process.execPath, [path.join(HERE, script), ...argv], { encoding: 'utf8' });
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  if (r.status !== 0) {
+    console.error(`build-voice-video: ${path.basename(script)} failed (exit ${r.status}).`);
+    process.exit(r.status || 1);
+  }
+  return r.stdout || '';
 }
 
 function readData(file) {
@@ -91,8 +111,30 @@ function main() {
   if (args.replan) planArgs.push('--force');
   run('voice/plan-scenes.mjs', planArgs);
 
+  const crfArgs = args.crf ? ['--crf', args.crf] : [];
+
+  // Project the size before committing to a render that can run for ten minutes. The duration is
+  // already exact once the speech exists, so this is a cheap, accurate gate rather than a guess.
+  if (!args.sheet) {
+    const maxMb = Number.isFinite(args.maxMb) ? args.maxMb : 20;
+    const est = runCapture('voice/render-call.mjs', ['--recording', recPath, '--estimate', ...crfArgs]);
+    const mb = parseFloat((est.match(/projected ([\d.]+) MB/) || [])[1]);
+    if (args.estimate) return;
+    if (Number.isFinite(mb) && mb > maxMb && !args.acceptSize) {
+      console.error(`\nbuild-voice-video: stopping before the render — this would be about ` +
+        `${mb.toFixed(1)} MB, over the ${maxMb} MB limit.`);
+      console.error('  Agree the trade with the facilitator, then re-run with one of:');
+      console.error(`    --crf ${Number(args.crf || 25) + 3}         roughly 25% smaller, content unchanged`);
+      console.error('    scenes.json "waves"  lighter background — about half the file, no content lost');
+      console.error('    trim the conversation in recording.json — cached lines are not re-spoken');
+      console.error(`    --accept-size        render it at ~${mb.toFixed(1)} MB as it stands`);
+      process.exit(75);
+    }
+  }
+
   run('voice/render-call.mjs', [
     '--recording', recPath,
+    ...crfArgs,
     ...(args.sheet ? ['--contact-sheet'] : []),
   ]);
   if (args.sheet) return;
