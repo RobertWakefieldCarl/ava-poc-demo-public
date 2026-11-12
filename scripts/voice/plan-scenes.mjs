@@ -15,6 +15,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { stripVoiceTags } from '../lib/voice-tags.mjs';
 
 const USAGE = `
 Usage: node plan-scenes.mjs --recording <recording.json> [options]
@@ -203,7 +204,7 @@ function main() {
     const acts = t.msg.actions || [];
     if (acts.some((a) => a.type === 'escalation' || a.name === 'escalation')) return true;
     return /pass you to a member services representative|connect you with a member services representative/i.test(
-      t.msg.text || '',
+      stripVoiceTags(t.msg.text),
     );
   }).length;
   const capLine = {
@@ -280,7 +281,7 @@ function main() {
   console.log(`  chapters    ${chips.length} · cards ${cards.length} · capabilities ${shownCaps.length}`);
   console.log(`  capabilities shown: ${capsUsed.join(', ') || 'none detected'}`);
   if (!scenes.cta.phone) {
-    console.log('  note: no voice.phoneNumber in the recording — the CTA will omit the number.');
+    console.log('  ending     Genesys outro (no voice.phoneNumber, so the phone CTA is skipped)');
   }
   console.log('  Review and tune scenes.json before rendering; it is the editorial layer.');
 }

@@ -225,8 +225,26 @@ data") doesn't name the kind of data this demo actually shows.
 Give each use case 2–4 `mockData` rows — these show in the demo's side rail while that chapter plays
 and make it obvious which demo values are in use.
 
-For the voice channel, set only the inputs Step 4v needs: `voice.format`, `voice.phoneNumber`,
-`voice.callerName` and any `voice.tts` overrides. Step 4v fills in the rest of the block — video
+Add an `afterContact` block so the demo answers what a supervisor sees once the interaction ends —
+the AI summary and wrap-up code Genesys writes on *every* interaction, contained or escalated:
+
+```bash
+node scripts/after-contact.mjs codes    --recording <...>/recording.json   # what the org has
+node scripts/after-contact.mjs scaffold --recording <...>/recording.json --code "<org code>"
+node scripts/after-contact.mjs check    --recording <...>/recording.json   # before Step 5
+```
+
+The wrap-up code and the summary's field labels come from the session's `wrap-up-codes.json` and
+`summary-setting.json`, so they are the customer's own. The generated summary *prose* cannot be read
+back from the platform, so you write it and the page labels it as illustrative — never present
+authored text as captured output. `check` fails the build if the block claims a hand-off the
+conversation never makes. Full shape, provenance rules and the hand-off fields are in
+[after-contact.md](references/after-contact.md).
+
+For the voice channel, set only the inputs Step 4v needs: `voice.format`, `voice.callerName` and any
+`voice.tts` overrides. Leave `voice.phoneNumber` out unless the facilitator has given you a real
+demo line to publish — it drives a closing slide whose entire content is that number, so the video
+ends on the Genesys outro without it. Step 4v fills in the rest of the block — video
 path, poster, capability chapters, outcomes and the call transcript — so there is no point writing
 those by hand. The full shape is in [voice-video.md](references/voice-video.md) §9.
 
@@ -407,6 +425,10 @@ the page can sit on screen while the presenter talks.
   [voice-video.md](references/voice-video.md) §5.4.
 - **Never invent outcome metrics.** Capability banners and outcome tiles may only state what the
   call actually shows.
+- **Never pass authored text off as platform output.** The After Contact summary prose cannot be
+  read back from Genesys, so it is written — keep `afterContact.source` honest (`authored`, not
+  `captured`) and leave the provenance line on the panel. Equally, only show a hand-off the
+  conversation actually makes.
 - **Send the zip when the demo has a voice channel.** The MP4 is linked, so a lone `demo.html` will
   show a dead player.
 - Do not present the demo as a deployed web-chat integration — it is a recorded mock-up.

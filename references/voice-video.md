@@ -129,7 +129,6 @@ Set these under `voice.tts` in `recording.json` (all optional):
 ```json
 "voice": {
   "format": "9x16",
-  "phoneNumber": "+1 555 010 0199",
   "callerName": "Member",
   "tts": {
     "agentVoice": "Rachel",
@@ -174,6 +173,17 @@ Give those messages both forms. `speechText` is sent to ElevenLabs and keys the 
 
 Keep `speechText` verbatim from Cicero, and let `text` differ from it only by removing the tags.
 Omit `speechText` and nothing changes — `text` is spoken as before.
+
+Splitting the fields is still the clearer record of what the AVA returned, but forgetting to split
+them no longer leaks markup into the demo. Every display path — chat bubbles, video captions, the
+voice transcript rail and `transcript.md` — strips tags through `scripts/lib/voice-tags.mjs`, so
+tags left inline in `text` are spoken and never shown. Synthesis reads the unstripped form, so
+audio is unaffected either way.
+
+The stripper matches one to three lowercase words in brackets, which is deliberately structural so
+a tag it has never seen still gets removed. Bracketed text carrying a digit, a capital or internal
+punctuation — `[1]`, `[REDACTED]`, `[Dr Chen]` — is left alone. Run
+`node scripts/lib/voice-tags.test.mjs` after changing it.
 
 ---
 
@@ -459,9 +469,12 @@ Empathy and proactive next-best-action are good secondary labels when they occur
    lines, one per capability, written for this call.
 5. **Business outcome (6.5 s, dark):** "One call. / Fully resolved." with four gradient stat tiles
    (e.g. "3/3 Requests resolved", "+1 Care gap closed", "0 Transfers to a human", "2 Texts sent").
-6. **Genesys outro (5.5 s, beige):** "Orchestrate every channel." / gradient "Resolve with AI." /
-   "All in Genesys Cloud." / Genesys logo / pill "Meet the Genesys Agentic Virtual Agent".
-7. **CTA (9 s, dark):**
+6. **Genesys outro (beige):** "Orchestrate every channel." / gradient "Resolve with AI." /
+   "All in Genesys Cloud." / Genesys logo / pill "Meet the Genesys Agentic Virtual Agent". Runs 5.5 s
+   ahead of a CTA, or 8.0 s as the closing scene when there is no CTA.
+7. **CTA (9 s, dark) — only when `voice.phoneNumber` is set.** The whole slide exists to carry that
+   number, so without one it is skipped and the video ends on the outro, 9 s shorter. Leave the
+   number out unless the facilitator gave you a real line to publish.
    - partner logo
    - "TRY IT YOURSELF"
    - "Talk to the Agentic Virtual Agent / by phone."

@@ -19,8 +19,13 @@ const CROSSFADE = 3.9;  // beige intro gives way to the "answering" card
 const HOLD = 1.6;
 const RECAP = 8.5;
 const OUTCOME = 6.5;
-const OUTRO = 5.5;
-const CTA = 9.0;
+// The closing phone CTA is opt-in, because the whole slide exists to show a number: without one it
+// reads "Talk to the agent by phone / Call the demo line" over empty space, which is worse than
+// ending on the brand. Set voice.phoneNumber to bring it back. When it is absent the outro becomes
+// the closing scene and holds longer, and the video is ~9s shorter.
+const HAS_CTA = !!(S.cta && S.cta.phone);
+const OUTRO = HAS_CTA ? 5.5 : 8.0;
+const CTA = HAS_CTA ? 9.0 : 0;
 
 const CALL_END = INTRO + D.callDur;
 const T_RECAP = CALL_END + HOLD;
@@ -28,12 +33,16 @@ const T_OUTCOME = T_RECAP + RECAP;
 const T_OUTRO = T_OUTCOME + OUTCOME;
 const T_CTA = T_OUTRO + OUTRO;
 const TOTAL = T_CTA + CTA;
+// Where the outro has to be fully faded in by. With no CTA to hand over to, it holds to the end.
+const OUTRO_OUT = HAS_CTA ? T_CTA - 0.4 : TOTAL;
+const OUTRO_ELS = HAS_CTA ? T_CTA - 0.5 : TOTAL;
 window.TOTAL = TOTAL;
 window.INTRO = INTRO;
 // Scene boundaries, so the contact sheet can sample one frame inside each scene rather than
 // spreading samples evenly and missing the short ones.
 window.MARKS = { intro: 0, answering: CROSSFADE, call: INTRO, callEnd: CALL_END,
-  recap: T_RECAP, outcome: T_OUTCOME, outro: T_OUTRO, cta: T_CTA, total: TOTAL };
+  recap: T_RECAP, outcome: T_OUTCOME, outro: T_OUTRO, total: TOTAL };
+if (HAS_CTA) window.MARKS.cta = T_CTA;
 
 /* ------------------------------------------------------------------- helpers */
 
@@ -152,11 +161,14 @@ $('#outroLines').innerHTML =
   `${S.outro.line1}<br><span class="grad">${S.outro.line2}</span><br>${S.outro.line3}`;
 $('#outroPill span').textContent = S.outro.pill;
 
-$('#ctaEyebrow').textContent = S.cta.eyebrow;
-$('#ctaTitle').innerHTML = `${S.cta.line1}<br><span class="grad">${S.cta.line2}</span>`;
-$('#ctaNote').textContent = S.cta.note;
-if (S.cta.phone) $('#phoneTile .num').textContent = S.cta.phone;
-else $('#phoneTile').style.display = 'none';
+if (HAS_CTA) {
+  $('#ctaEyebrow').textContent = S.cta.eyebrow;
+  $('#ctaTitle').innerHTML = `${S.cta.line1}<br><span class="grad">${S.cta.line2}</span>`;
+  $('#ctaNote').textContent = S.cta.note;
+  $('#phoneTile .num').textContent = S.cta.phone;
+} else {
+  $('#sc-cta').style.display = 'none';
+}
 
 /* --------------------------------------------------------------- captions */
 
@@ -245,13 +257,13 @@ const sections = {
 window.render = function render(t) {
   // Scene opacity. The intro crossfades into the call screen rather than cutting.
   const introOut = vis(t, 0, CROSSFADE, 0.5);
-  const outroV = vis(t, T_OUTRO, T_CTA - 0.4, 0.5);
+  const outroV = vis(t, T_OUTRO, OUTRO_OUT, 0.5);
   sections.intro.style.opacity = introOut;
   sections.call.style.opacity = t < CROSSFADE ? 0 : vis(t, CROSSFADE, CALL_END + HOLD - 0.4, 0.5);
   sections.recap.style.opacity = vis(t, T_RECAP, T_OUTCOME - 0.4, 0.5);
   sections.outcome.style.opacity = vis(t, T_OUTCOME, T_OUTRO - 0.4, 0.5);
   sections.outro.style.opacity = outroV;
-  sections.cta.style.opacity = vis(t, T_CTA, TOTAL, 0.5);
+  if (HAS_CTA) sections.cta.style.opacity = vis(t, T_CTA, TOTAL, 0.5);
 
   // The beige backdrop crossfades over the dark one; the waves sit between backdrop and content.
   const beige = Math.max(introOut, outroV);
@@ -357,9 +369,11 @@ window.render = function render(t) {
   recapRows.forEach((el, i) => show(el, vis(t, T_RECAP + 0.9 + i * 0.6, T_OUTCOME - 0.5)));
   tileEls.forEach((el, i) => show(el, vis(t, T_OUTCOME + 1.0 + i * 0.35, T_OUTRO - 0.5)));
   show($('#outLine'), vis(t, T_OUTCOME + 0.2, T_OUTRO - 0.5));
-  show($('#outroLines'), vis(t, T_OUTRO + 0.3, T_CTA - 0.5));
-  show($('#outroGenesys'), vis(t, T_OUTRO + 1.2, T_CTA - 0.5), false);
-  show($('#outroPill'), vis(t, T_OUTRO + 1.8, T_CTA - 0.5));
+  show($('#outroLines'), vis(t, T_OUTRO + 0.3, OUTRO_ELS));
+  show($('#outroGenesys'), vis(t, T_OUTRO + 1.2, OUTRO_ELS), false);
+  show($('#outroPill'), vis(t, T_OUTRO + 1.8, OUTRO_ELS));
+  if (!HAS_CTA) return;
+
   show($('#ctaPartner'), vis(t, T_CTA + 0.2, TOTAL), false);
   show($('#ctaEyebrow'), vis(t, T_CTA + 0.6, TOTAL));
   show($('#ctaTitle'), vis(t, T_CTA + 0.9, TOTAL));

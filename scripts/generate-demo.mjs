@@ -23,6 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { zipDemo } from './lib/zip-demo.mjs';
+import { stripVoiceTags } from './lib/voice-tags.mjs';
 
 function parseArgs(argv) {
   const out = {
@@ -176,7 +177,8 @@ function normalize(rec, baseDir, args) {
   const messages = (rec.messages || []).map((m) => ({
     useCaseId: m.useCaseId || null,
     role: m.role === 'customer' || m.role === 'system' ? m.role : 'agent',
-    text: String(m.text ?? ''),
+    // Expressive-TTS direction is for the voice engine, never for a reader.
+    text: stripVoiceTags(m.text ?? m.speechText ?? ''),
     note: m.note || null,
     actions: (m.actions || []).map((a) => ({
       type: a.type || 'tool',
@@ -210,7 +212,7 @@ function normalize(rec, baseDir, args) {
         transcript: (v.transcript || []).map((t) => ({
           at: Number(t.at ?? t.start) || 0,
           speaker: t.speaker === 'caller' ? 'caller' : 'agent',
-          text: String(t.text ?? ''),
+          text: stripVoiceTags(t.text ?? ''),
         })),
         outcomes: (v.outcomes || []).map((o) => ({ label: o.label, value: o.value })),
       }
@@ -255,6 +257,48 @@ function normalize(rec, baseDir, args) {
     recordedAt: rec.recordedAt || new Date().toISOString(),
     messages,
     voice,
+    afterContact: afterContact(rec),
+  };
+}
+
+/**
+ * What a supervisor sees once the interaction ends: the AI summary and the wrap-up code that
+ * Genesys writes through After Contact, plus the hand-off details when the AVA passed the caller
+ * to a human. After Contact runs on every interaction, not only escalations, so a contained call
+ * still has a summary and a code.
+ *
+ * The generated summary text cannot be read back through this harness — the preview endpoint
+ * returns an empty body and delivers the text on a user-scoped notification topic that client
+ * credentials cannot subscribe to. So `summary.text` is written by the author, and `source` says
+ * where it came from, which the page states on the panel rather than implying live output.
+ */
+function afterContact(rec) {
+  const ac = rec.afterContact;
+  if (!ac) return null;
+  const s = ac.summary || {};
+  const code = ac.wrapUpCode || {};
+  const handoff = ac.disposition === 'handoff' ? ac.handoff || {} : null;
+  return {
+    source: ['org', 'captured', 'authored'].includes(ac.source) ? ac.source : 'authored',
+    disposition: handoff ? 'handoff' : 'contained',
+    wrapUpCode: code.name
+      ? { name: String(code.name), source: code.source === 'org' ? 'org' : 'authored' }
+      : null,
+    handoff: handoff
+      ? {
+          queue: handoff.queue || null,
+          reason: handoff.reason || null,
+          agentSees: (handoff.agentSees || []).map((r) => ({ label: r.label, value: r.value })),
+        }
+      : null,
+    summary: {
+      settingName: s.settingName || null,
+      text: s.text || '',
+      reasonForCall: s.reasonForCall || '',
+      resolution: s.resolution || '',
+      actionItems: (s.actionItems || []).map(String),
+      entities: (s.entities || []).map((e) => ({ label: e.label, value: e.value })),
+    },
   };
 }
 
@@ -398,6 +442,64 @@ function buildTranscript(d, mode) {
     }
   }
 
+  const ac = d.afterContact;
+  if (ac) {
+    lines.push('## After the conversation');
+    lines.push('');
+    lines.push('What a supervisor sees in Genesys Cloud once the interaction ends.');
+    lines.push('');
+    lines.push(
+      ac.disposition === 'handoff'
+        ? `**Disposition:** transferred to a person${ac.handoff.queue ? ` — ${ac.handoff.queue}` : ''}  `
+        : '**Disposition:** resolved without a transfer  '
+    );
+    if (ac.wrapUpCode) lines.push(`**Wrap-up code:** ${ac.wrapUpCode.name}  `);
+    if (ac.summary.settingName) lines.push(`**Summary setting:** ${ac.summary.settingName}`);
+    lines.push('');
+    if (ac.handoff && ac.handoff.agentSees.length) {
+      lines.push('### The agent receives');
+      lines.push('');
+      for (const r of ac.handoff.agentSees) lines.push(`- **${r.label}:** ${r.value}`);
+      lines.push('');
+    }
+    if (ac.summary.text) {
+      lines.push(ac.summary.text);
+      lines.push('');
+    }
+    for (const [k, val] of [
+      ['Reason for call', ac.summary.reasonForCall],
+      ['Resolution', ac.summary.resolution],
+    ]) {
+      if (val) {
+        lines.push(`**${k}:** ${val}`);
+        lines.push('');
+      }
+    }
+    if (ac.summary.actionItems.length) {
+      lines.push('**Next best action**');
+      lines.push('');
+      for (const a of ac.summary.actionItems) lines.push(`- ${a}`);
+      lines.push('');
+    }
+    if (ac.summary.entities.length) {
+      lines.push('### Extracted for the record');
+      lines.push('');
+      lines.push('| Field | Value |');
+      lines.push('| --- | --- |');
+      for (const e of ac.summary.entities) lines.push(`| ${e.label} | ${e.value} |`);
+      lines.push('');
+    }
+    lines.push(
+      ac.source === 'captured'
+        ? '_Captured from the interaction._'
+        : '_Summary wording is illustrative, laid out as this org\'s summary setting defines it.' +
+          (ac.wrapUpCode && ac.wrapUpCode.source === 'org'
+            ? ' The wrap-up code is from the org\'s configured list._'
+            : '_')
+    );
+    lines.push('');
+  }
+
   return `${lines.join('\n')}\n`;
 }
 
@@ -484,8 +586,71 @@ function digitalPanel(d, mode) {
       <h2>Demo data in play</h2>
       <div id="mock"><div class="mock-empty">Press play to start.</div></div>
     </div>
+    ${afterContactCard(d)}
   </aside>
 </div>`;
+}
+
+/**
+ * The After Contact card. Dimmed until the replay finishes, because in a real interaction the
+ * summary and wrap-up code are written when the conversation ends, not while it runs.
+ */
+function afterContactCard(d, idPrefix = '') {
+  const ac = d.afterContact;
+  if (!ac) return '';
+  const row = (label, value) =>
+    `<div class="ac-row"><span class="ac-k">${esc(label)}</span><span class="ac-v">${esc(value)}</span></div>`;
+
+  const handoff = ac.handoff
+    ? `<div class="ac-handoff">
+         <div class="ac-badge">Transferred to a person</div>
+         ${ac.handoff.queue ? row('Queue', ac.handoff.queue) : ''}
+         ${ac.handoff.agentSees.length
+           ? `<div class="ac-sub">The agent receives</div>${ac.handoff.agentSees.map((r) => row(r.label, r.value)).join('')}`
+           : ''}
+       </div>`
+    : `<div class="ac-handoff"><div class="ac-badge contained">Resolved without a transfer</div></div>`;
+
+  const insights = [
+    ac.summary.reasonForCall ? ['Reason for call', ac.summary.reasonForCall] : null,
+    ac.summary.resolution ? ['Resolution', ac.summary.resolution] : null,
+  ]
+    .filter(Boolean)
+    .map(([k, val]) => `<div class="ac-sub">${esc(k)}</div><p class="ac-p">${esc(val)}</p>`)
+    .join('');
+
+  const actions = ac.summary.actionItems.length
+    ? `<div class="ac-sub">Next best action</div><ul class="ac-list">${ac.summary.actionItems
+        .map((a) => `<li>${esc(a)}</li>`)
+        .join('')}</ul>`
+    : '';
+
+  const entities = ac.summary.entities.length
+    ? `<div class="ac-sub">Extracted for the record</div>${ac.summary.entities
+        .map((e) => row(e.label, e.value))
+        .join('')}`
+    : '';
+
+  // Say plainly where this text came from. A supervisor-ready summary is the most convincing
+  // thing on the page, so it must never be mistaken for live Genesys output when it is not.
+  const provenance = {
+    org: 'Wrap-up code from this org&rsquo;s configured list. Summary written for the demo.',
+    captured: 'Captured from the interaction.',
+    authored: 'Illustrative wording for the demo, laid out as this org&rsquo;s summary setting defines it.',
+  }[ac.source];
+
+  return `
+    <div class="card ac-card" id="${idPrefix}afterContact">
+      <h2>After the conversation</h2>
+      <div class="ac-note">What a supervisor sees in Genesys Cloud once the interaction ends.</div>
+      ${handoff}
+      ${ac.wrapUpCode ? `<div class="ac-sub">Wrap-up code</div><div class="ac-code">${esc(ac.wrapUpCode.name)}</div>` : ''}
+      ${ac.summary.text ? `<div class="ac-sub">Summary</div><p class="ac-p">${esc(ac.summary.text)}</p>` : ''}
+      ${insights}
+      ${actions}
+      ${entities}
+      <div class="ac-prov">${provenance}</div>
+    </div>`;
 }
 
 function voicePanel(d, mode) {
@@ -571,6 +736,7 @@ function voicePanel(d, mode) {
       <h2>Call transcript</h2>
       <div class="tlines" id="tlines">${lines || '<div class="mock-empty">No call transcript recorded.</div>'}</div>
     </div>
+    ${afterContactCard(d, 'v')}
   </aside>
 </div>`;
 }
@@ -759,6 +925,28 @@ function buildHtml(d, mode) {
   .mock-row .v{font-family:"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:#dbe4ee;text-align:right}
   .mock-empty{color:#6e7f93;font-size:12.5px}
 
+  /* ---- after contact ---- */
+  .ac-card{opacity:.4;transition:opacity .45s ease}
+  .ac-card.on{opacity:1}
+  .ac-note{color:#6e7f93;font-size:11.5px;line-height:1.45;margin:-4px 0 11px}
+  .ac-handoff{margin-bottom:11px}
+  .ac-badge{display:inline-block;background:#3b2a16;border:1px solid #7a5520;color:#f0b254;
+    border-radius:999px;padding:3px 11px;font-size:11.5px;font-weight:600;margin-bottom:7px}
+  .ac-badge.contained{background:#16302a;border-color:#1f6a53;color:#4fd1a5}
+  .ac-sub{color:#8c9db1;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;
+    font-weight:600;margin:12px 0 5px}
+  .ac-p{margin:0;font-size:12.5px;line-height:1.5;color:#cdd8e4}
+  .ac-list{margin:0;padding-left:16px;font-size:12.5px;line-height:1.55;color:#cdd8e4}
+  .ac-code{display:inline-block;background:#1f2a38;border:1px solid #3a4b61;border-radius:7px;
+    padding:5px 11px;font-family:"Cascadia Mono",Consolas,monospace;font-size:11.5px;color:#9fd2ff}
+  .ac-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;
+    border-bottom:1px solid #26313f}
+  .ac-row:last-child{border-bottom:none}
+  .ac-k{color:#8c9db1}
+  .ac-v{color:#dbe4ee;text-align:right}
+  .ac-prov{margin-top:13px;padding-top:10px;border-top:1px solid #26313f;color:#6e7f93;
+    font-size:11px;line-height:1.45}
+
   /* ---- controls ---- */
   .controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
   .btn{background:#222e3d;border:1px solid #334155;color:#dbe4ee;border-radius:8px;padding:7px 14px;
@@ -824,6 +1012,10 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
 
     var speed = 1, paused = true, runToken = 0, finished = false;
     var ABORT = {};
+
+    // After Contact is written when the interaction ends, so the card stays dimmed until it does.
+    var acCard = document.getElementById('afterContact');
+    function setAfterContact(on){ if (acCard) acCard.classList.toggle('on', !!on); }
 
     function readMs(text){ return clamp(text.length * 26, 700, 2600); }
     function typeMs(text){ return clamp(text.length * 17, 600, 2400); }
@@ -972,6 +1164,7 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
     async function run(fromIndex){
       var token = ++runToken;
       finished = false;
+      setAfterContact(false);
       msgsEl.innerHTML = '';
       clearComposer();
 
@@ -1024,6 +1217,7 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
         }
         finished = true;
         paused = true;
+        setAfterContact(true);
         setPlayLabel();
       } catch (e) {
         if (e !== ABORT) throw e;
@@ -1096,7 +1290,15 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
     });
     vid.addEventListener('play', label);
     vid.addEventListener('pause', label);
-    vid.addEventListener('ended', function(){ playBtn.textContent = '↻ Replay'; });
+    var vAc = document.getElementById('vafterContact');
+    vid.addEventListener('ended', function(){
+      playBtn.textContent = '↻ Replay';
+      if (vAc) vAc.classList.add('on');
+    });
+    // Scrubbing back from the end puts the call mid-flight again, so the card dims with it.
+    vid.addEventListener('seeking', function(){
+      if (vAc && vid.currentTime < vid.duration - 0.5) vAc.classList.remove('on');
+    });
 
     document.getElementById('vSpeed').addEventListener('click', function(e){
       var b = e.target.closest('button'); if (!b) return;

@@ -24,6 +24,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolveSecret } from '../lib/secrets.mjs';
+import { stripVoiceTags } from '../lib/voice-tags.mjs';
 
 const SAMPLE_RATE = 24000;
 const FPS = 30;
@@ -274,12 +275,24 @@ function envelopes(pcm, segs) {
 
 // ------------------------------------------------------------------- the job
 
-/** Flatten the recording into the lines to speak, in order. */
+/**
+ * Flatten the recording into the lines to speak, in order.
+ *
+ * `speechText` lets a message be spoken differently from how it is shown — an AVA authored for
+ * expressive TTS emits markup like "[warmly] Hi there", which the voice engine acts on but which
+ * must never reach a caption or a chat bubble. The spoken form drives synthesis and the cache key;
+ * the shown form is what every later stage reads back out of data.js.
+ *
+ * Authors do not always split the two fields, because the tags are simply what the AVA returned.
+ * So the shown form is stripped rather than trusted: tags in `text` with no `speechText` are
+ * still spoken, and still never displayed.
+ */
 function linesFrom(rec) {
   return (rec.messages || [])
     .map((m) => ({
       ch: m.role === 'agent' ? 'R' : 'L',
-      text: String(m.text || '').trim(),
+      text: String(m.speechText || m.text || '').trim(),
+      display: stripVoiceTags(m.text || m.speechText || ''),
       hasActions: Array.isArray(m.actions) && m.actions.length > 0,
       useCaseId: m.useCaseId || null,
     }))
@@ -393,7 +406,7 @@ async function main() {
       ch: line.ch,
       start: +cursor.toFixed(3),
       end: +(cursor + dur).toFixed(3),
-      text: line.text,
+      text: line.display,
       useCaseId: line.useCaseId,
     });
     parts.push(pcm);
