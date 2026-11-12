@@ -241,6 +241,12 @@ authored text as captured output. `check` fails the build if the block claims a 
 conversation never makes. Full shape, provenance rules and the hand-off fields are in
 [after-contact.md](references/after-contact.md).
 
+When the conversation reaches a person, give the transferring agent turn an `escalation` action and
+give the person a `role: "human"` turn with a `speaker` name, opening on the summary. They render as
+their own speaker in both channels — a named bubble in the chat, their own voice and tag in the
+call — and the video gains an Agent Copilot scene showing what landed on their screen. Never
+attribute a person's words to the AVA.
+
 For the voice channel, set only the inputs Step 4v needs: `voice.format`, `voice.callerName` and any
 `voice.tts` overrides. Leave `voice.phoneNumber` out unless the facilitator has given you a real
 demo line to publish — it drives a closing slide whose entire content is that number, so the video

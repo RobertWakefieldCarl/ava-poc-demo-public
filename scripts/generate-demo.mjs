@@ -176,7 +176,10 @@ function normalize(rec, baseDir, args) {
 
   const messages = (rec.messages || []).map((m) => ({
     useCaseId: m.useCaseId || null,
-    role: m.role === 'customer' || m.role === 'system' ? m.role : 'agent',
+    // `human` is a person who took over after a hand-off — rendered as its own speaker so a viewer
+    // is never left thinking the AVA said it.
+    role: ['customer', 'system', 'human'].includes(m.role) ? m.role : 'agent',
+    speaker: m.role === 'human' ? String(m.speaker || 'Live agent') : null,
     // Expressive-TTS direction is for the voice engine, never for a reader.
     text: stripVoiceTags(m.text ?? m.speechText ?? ''),
     note: m.note || null,
@@ -211,7 +214,8 @@ function normalize(rec, baseDir, args) {
         })),
         transcript: (v.transcript || []).map((t) => ({
           at: Number(t.at ?? t.start) || 0,
-          speaker: t.speaker === 'caller' ? 'caller' : 'agent',
+          speaker: t.speaker === 'caller' ? 'caller' : t.speaker === 'human' ? 'human' : 'agent',
+          speakerName: t.speaker === 'human' ? String(t.speakerName || 'Live agent') : null,
           text: stripVoiceTags(t.text ?? ''),
         })),
         outcomes: (v.outcomes || []).map((o) => ({ label: o.label, value: o.value })),
@@ -332,6 +336,14 @@ function resolveMode(requested, d) {
   throw new Error('Recording has neither chat messages nor a call video — nothing to render.');
 }
 
+/** Who the transcript attributes a turn to. A person who took over is named, not called the AVA. */
+function speakerName(m, d) {
+  if (m.role === 'customer') return 'Customer';
+  if (m.role === 'system') return 'System';
+  if (m.role === 'human') return m.speaker || 'Live agent';
+  return d.ava.name;
+}
+
 function buildTranscript(d, mode) {
   const lines = [];
   lines.push(`# ${d.customer.name} — AVA proof-of-concept demo transcript`);
@@ -378,7 +390,7 @@ function buildTranscript(d, mode) {
           lines.push(`- 🔧 \`${a.name}\`${status}${io.length ? ` — ${io.join(', ')}` : ''}`);
         }
         if (m.actions.length) lines.push('');
-        const who = m.role === 'customer' ? 'Customer' : m.role === 'system' ? 'System' : d.ava.name;
+        const who = speakerName(m, d);
         lines.push(`**${who}:** ${m.text}`);
         lines.push('');
         if (m.note) {
@@ -393,7 +405,7 @@ function buildTranscript(d, mode) {
       lines.push('### Other turns');
       lines.push('');
       for (const m of orphans) {
-        const who = m.role === 'customer' ? 'Customer' : m.role === 'system' ? 'System' : d.ava.name;
+        const who = speakerName(m, d);
         lines.push(`**${who}:** ${m.text}`);
         lines.push('');
       }
@@ -435,7 +447,8 @@ function buildTranscript(d, mode) {
       lines.push('### Call transcript');
       lines.push('');
       for (const t of v.transcript) {
-        const who = t.speaker === 'caller' ? v.callerName : v.agentName;
+        const who = t.speaker === 'caller' ? v.callerName
+          : t.speaker === 'human' ? t.speakerName : v.agentName;
         lines.push(`**[${clock(t.at)}] ${who}:** ${t.text}`);
         lines.push('');
       }
@@ -605,6 +618,7 @@ function afterContactCard(d, idPrefix = '') {
     ? `<div class="ac-handoff">
          <div class="ac-badge">Transferred to a person</div>
          ${ac.handoff.queue ? row('Queue', ac.handoff.queue) : ''}
+         ${ac.handoff.reason ? row('Why', ac.handoff.reason) : ''}
          ${ac.handoff.agentSees.length
            ? `<div class="ac-sub">The agent receives</div>${ac.handoff.agentSees.map((r) => row(r.label, r.value)).join('')}`
            : ''}
@@ -677,7 +691,8 @@ function voicePanel(d, mode) {
       <button class="tline ${t.speaker}" data-at="${t.at}" data-i="${i}">
         <span class="tl-at">${clock(t.at)}</span>
         <span class="tl-body">
-          <span class="tl-who">${esc(t.speaker === 'caller' ? v.callerName : v.agentName)}</span>
+          <span class="tl-who">${esc(t.speaker === 'caller' ? v.callerName
+            : t.speaker === 'human' ? t.speakerName : v.agentName)}</span>
           <span class="tl-text">${esc(t.text)}</span>
         </span>
       </button>`
@@ -836,6 +851,13 @@ function buildHtml(d, mode) {
   .row.me .bubble{background:var(--brand);color:#fff;border-bottom-right-radius:5px}
   .row.sys{justify-content:center}
   .row.sys .bubble{background:#e7edf4;color:#5a6b80;font-size:12px;border-radius:999px;padding:5px 13px}
+  /* A person who took over after a hand-off. Tinted and named, so nobody reads it as the AVA. */
+  .row.human{flex-direction:column;align-items:flex-start}
+  .row.human .who{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:#1d6f42;margin:0 0 4px 3px;display:flex;align-items:center;gap:5px}
+  .row.human .who::before{content:'';width:7px;height:7px;border-radius:50%;background:#1d6f42}
+  .row.human .bubble{background:#edf7f0;color:var(--ink);border:1px solid #bcdcc8;
+    border-bottom-left-radius:5px}
   @keyframes pop{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 
   .chapter-sep{display:flex;align-items:center;gap:9px;margin:16px 2px 12px;color:#8496a9;font-size:11px;
@@ -900,6 +922,8 @@ function buildHtml(d, mode) {
   .tl-body{display:flex;flex-direction:column;gap:1px}
   .tl-who{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#7e8fa3;font-weight:600}
   .tline.caller .tl-who{color:#8fa4bb}
+  /* Same green the video uses for the person who took over, so the two read as one story. */
+  .tline.human .tl-who{color:#4fc98a}
   .tl-text{line-height:1.4}
 
   /* ---- side rail ---- */
@@ -1045,9 +1069,16 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
       msgsEl.appendChild(el); scroll();
     }
 
-    function addBubble(role, text){
+    function addBubble(role, text, who){
       var row = document.createElement('div');
-      row.className = 'row ' + (role === 'customer' ? 'me' : role === 'system' ? 'sys' : 'bot');
+      row.className = 'row ' + (role === 'customer' ? 'me'
+        : role === 'system' ? 'sys' : role === 'human' ? 'human' : 'bot');
+      if (role === 'human' && who){
+        var tag = document.createElement('div');
+        tag.className = 'who';
+        tag.textContent = who;
+        row.appendChild(tag);
+      }
       var b = document.createElement('div');
       b.className = 'bubble';
       b.textContent = text;
@@ -1065,7 +1096,7 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
       el.innerHTML =
         '<div class="act-head"><span class="spin"></span>' +
         '<span class="act-name">' + escape_(a.name) + '</span>' +
-        '<span class="act-state">calling…</span></div>' +
+        '<span class="act-state">' + (a.type === 'escalation' ? 'transferring…' : 'calling…') + '</span></div>' +
         (io ? '<div class="act-io">' + io + '</div>' : '');
       el.querySelector('.act-head').addEventListener('click', function(){
         if (io) el.classList.toggle('open');
@@ -1150,7 +1181,7 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
         if (uc) addSeparator(uc.title);
       }
       m.actions.forEach(function(a){ resolveAction(addAction(a), a); });
-      addBubble(m.role, m.text);
+      addBubble(m.role, m.text, m.speaker);
     }
 
     function setProgress(i){
@@ -1199,6 +1230,16 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
           } else if (m.role === 'system'){
             addBubble('system', m.text);
             await wait(700);
+          } else if (m.role === 'human'){
+            // The pause is the hand-off: the caller waits while a person picks up.
+            addBubble('system', 'Transferred to ' + (D.afterContact && D.afterContact.handoff
+              && D.afterContact.handoff.queue ? D.afterContact.handoff.queue : 'a live agent'));
+            await wait(900);
+            var ht = showTyping();
+            await wait(typeMs(m.text));
+            ht.remove();
+            addBubble('human', m.text, m.speaker);
+            await wait(readMs(m.text));
           } else {
             for (var k = 0; k < m.actions.length; k++){
               var a = m.actions[k];

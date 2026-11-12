@@ -182,15 +182,26 @@ function main() {
     if (ac.disposition === 'handoff' && !(ac.handoff && ac.handoff.queue)) {
       warn.push('disposition is handoff but no queue is named');
     }
-    // A demo that claims a transfer the conversation never made is the failure mode here.
-    const spoke = (rec.messages || []).some((m) =>
-      m.role === 'agent' && /connect you|transfer you|pass you|associate|representative|live agent/i.test(m.text || '')
+    // A demo that claims a transfer the conversation never made is the failure mode here. Look for
+    // what the recording *did* rather than how it was phrased: an escalation action, or a person
+    // actually taking a turn. Wording alone is too brittle to gate a build on — "let me bring one
+    // in" is a transfer and "I can't transfer you" is not.
+    const escalated = (rec.messages || []).some(
+      (m) => m.role === 'human'
+        || (m.actions || []).some((a) => a.type === 'escalation' || /transfer|escalat/i.test(a.name || '')),
     );
-    if (ac.disposition === 'handoff' && !spoke) {
-      problems.push('disposition is handoff, but no agent turn offers or performs one');
+    const mentionsPerson = (rec.messages || []).some(
+      (m) => m.role === 'agent'
+        && /connect you|transfer you|pass you|bring (?:one|someone) in|examiner|representative|live agent/i.test(m.text || ''),
+    );
+    if (ac.disposition === 'handoff' && !escalated) {
+      problems.push(
+        'disposition is handoff, but no turn has an escalation action and no person speaks. '
+        + 'Add the escalation action to the transferring agent turn, or a role:"human" turn.',
+      );
     }
-    if (ac.disposition === 'contained' && spoke) {
-      warn.push('an agent turn mentions a person — confirm the call really was contained');
+    if (ac.disposition === 'contained' && (escalated || mentionsPerson)) {
+      warn.push('a turn escalates or mentions a person — confirm the call really was contained');
     }
 
     for (const p of problems) console.error(`  problem  ${p}`);

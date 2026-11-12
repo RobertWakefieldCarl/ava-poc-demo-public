@@ -122,6 +122,55 @@ customer does not recognise is worse than no panel at all.
 
 ---
 
+## 4a. Showing the hand-off itself
+
+The panel describes the hand-off; these two additions let the demo *play* it.
+
+**Give the person a turn.** A message with `role: "human"` is someone who took over after the
+transfer. It is rendered as its own speaker everywhere — a green, named bubble in the web chat, its
+own name in the voice transcript and in `transcript.md`, and its own voice in the call audio — so a
+viewer is never left thinking the AVA said it.
+
+```json
+{
+  "useCaseId": "escalation",
+  "role": "human",
+  "speaker": "Dana, licensing examiner",
+  "text": "Thanks for holding — this is Dana. I have the assistant's summary in front of me: …"
+}
+```
+
+Have them open on the summary. That is the entire argument for After Contact: the caller does not
+repeat the six things they have already explained. Choose their voice with `voice.tts.humanVoice`
+(default `Charlotte`); synthesis resolves it only when a `human` turn exists, so contained calls
+cost nothing extra.
+
+**Mark the transfer on the agent turn.** The turn that performs the transfer should carry an
+escalation action:
+
+```json
+"actions": [{
+  "type": "escalation",
+  "name": "transfer_to_queue",
+  "label": "transfer to a person",
+  "input": { "queue": "…", "reason": "…" },
+  "output": { "wrapUpCode": "…", "summaryAttached": true },
+  "status": "ok"
+}]
+```
+
+This is what `check` looks for, what the video counts in its "Transfers to a human" tile, and what
+turns the closing capability banner into "Warm hand-off" instead of claiming no transfer happened.
+
+In the call video this also produces the **Agent Copilot scene** — the receiving agent's screen,
+sliding in as the transfer lands and holding while the person speaks, showing the queue, the
+wrap-up code, why it came to them, the reason for call and the first few extracted fields. It is
+built automatically from the `afterContact` block; there is nothing extra to author. Values are
+clipped to the first clause because a panel of prose is unreadable at video scale — the demo page
+shows them in full.
+
+---
+
 ## 5. Where it appears
 
 - **demo.html** — the "After the conversation" card in the side rail of both channels. In the
@@ -129,3 +178,5 @@ customer does not recognise is worse than no panel at all.
   and it dims again if the viewer scrubs back into the call.
 - **transcript.md** — an "After the conversation" section with the disposition, code, summary
   setting, narrative, insights, action items, and an entities table.
+- **the call video** — the Agent Copilot scene at the hand-off, the "Warm hand-off" capability
+  banner, and honest outcome tiles ("Resolved by the agent 6/7", "Transfers to a human 1").

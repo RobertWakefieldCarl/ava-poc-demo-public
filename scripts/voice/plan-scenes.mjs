@@ -56,6 +56,46 @@ const GUARD_RE = /verif|auth|identit|eligib|consent|validate|confirm_member|look
 const titleCase = (s) =>
   String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim();
 
+/**
+ * The receiving agent's screen, shown at the moment the transfer lands.
+ *
+ * This is the payoff of After Contact, and it only reads as a payoff if the viewer sees it arrive
+ * while the person is still speaking — so it is pinned to the hand-off turn rather than parked in
+ * a slide after the call. Kept deliberately short: at video scale a panel of prose is unreadable,
+ * so it carries the reason, the two headline insights and a few extracted fields, not the whole
+ * summary.
+ */
+function copilotScene(rec, handedOver) {
+  const ac = rec.afterContact;
+  if (!handedOver || !ac || ac.disposition !== 'handoff') return null;
+  const s = ac.summary || {};
+  const h = ac.handoff || {};
+  return {
+    // Lands just before the person speaks, so the screen is already populated when they open on it.
+    at: +Math.max(0, handedOver.start - 2.2).toFixed(2),
+    until: +(handedOver.end + 1.2).toFixed(2),
+    agent: handedOver.msg.speaker || 'Live agent',
+    queue: h.queue || null,
+    wrapUpCode: (ac.wrapUpCode && ac.wrapUpCode.name) || null,
+    reason: h.reason || null,
+    reasonForCall: s.reasonForCall || null,
+    // Entity values are written for a supervisor reading a screen, not for a caption-sized panel,
+    // so they are clipped to the first clause. The demo page shows them in full.
+    rows: (s.entities || []).slice(0, 3).map((e) => ({ label: e.label, value: clip(e.value, 58) })),
+  };
+}
+
+/** First clause, or a hard character cap — whichever comes first, cut on a word boundary. */
+function clip(text, max) {
+  const t = String(text || '').trim();
+  const stop = t.search(/[.;—]|\s-\s/);
+  const head = (stop > 20 ? t.slice(0, stop) : t).replace(/[\s,]+$/, '');
+  if (head.length <= max) return head;
+  const cut = head.slice(0, max - 1);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,]+$/, '')}…`;
+}
+
 /** A caller turn that packs several asks into one breath is the headline AVA capability. */
 function isMultiRequest(text) {
   const sentences = text.split(/[.?!]+/).filter((s) => s.trim().length > 3);
@@ -189,9 +229,15 @@ function main() {
     }
   }
 
-  // Close on the outcome, over the final agent turn.
+  // Close on the outcome, over the final agent-side turn. A call that ended with a person has a
+  // different story to tell than one that did not, and claiming "no transfer" over a transfer
+  // would be the most obvious possible error in the video.
+  const handedOver = turns.find((t) => t.msg.role === 'human');
   const lastAgent = [...turns].reverse().find((t) => t.ch === 'R');
-  if (lastAgent) {
+  if (handedOver) {
+    addCap(handedOver.start - 0.8, handedOver.end + 1.0, 'Warm hand-off',
+      'Transfers with the summary attached — the caller does not start over');
+  } else if (lastAgent) {
     addCap(lastAgent.start, lastAgent.end + 1.0, 'Business outcome',
       'Resolved on first contact, with no transfer to a human');
   }
@@ -199,20 +245,18 @@ function main() {
   const shownCaps = deoverlap(caps);
   const capsUsed = [...new Set(shownCaps.map((c) => c.title))];
   const toolCalls = turns.reduce((n, t) => n + ((t.msg.actions || []).length), 0);
-  const humanTransfers = turns.filter((t) => {
-    if (t.msg.role !== 'agent') return false;
-    const acts = t.msg.actions || [];
-    if (acts.some((a) => a.type === 'escalation' || a.name === 'escalation')) return true;
-    return /pass you to a member services representative|connect you with a member services representative/i.test(
-      stripVoiceTags(t.msg.text),
-    );
-  }).length;
+  // Count what the recording did, not how it was worded. This used to match two fixed healthcare
+  // phrasings, so every other customer's transfer silently counted as zero.
+  const humanTransfers = turns.filter(
+    (t) => (t.msg.actions || []).some((a) => a.type === 'escalation' || /transfer|escalat/i.test(a.name || '')),
+  ).length;
   const capLine = {
     'Multiple inputs in one sentence': 'Understood several requests in a single sentence',
     'Turn interruption': 'Handled an interruption and picked the task back up',
     'Action execution': 'Executed real actions against the business systems',
     Guardrails: 'Stayed inside its guardrails before touching customer data',
     'Business outcome': 'Resolved the call end to end, with no transfer',
+    'Warm hand-off': 'Knew what not to answer, and handed over with the summary attached',
   };
 
   const scenes = {
@@ -245,19 +289,26 @@ function main() {
     chips,
     cards,
     caps: shownCaps,
+    copilot: copilotScene(rec, handedOver),
     recap: {
       lead: 'In one call, the Genesys Agentic Virtual Agent:',
       lines: capsUsed.map((c) => capLine[c] || c),
     },
     outcome: {
       line1: 'One call.',
-      line2: 'Fully resolved.',
+      // A transferred call was not "fully resolved" by the agent, and the tile beside it says so.
+      line2: handedOver ? 'One hand-off, with context.' : 'Fully resolved.',
       // Only counts the recording can actually back up.
       tiles: [
-        { value: `${useCases.length}/${useCases.length}`, label: 'Requests resolved' },
+        {
+          value: handedOver
+            ? `${Math.max(0, useCases.length - humanTransfers)}/${useCases.length}`
+            : `${useCases.length}/${useCases.length}`,
+          label: handedOver ? 'Resolved by the agent' : 'Requests resolved',
+        },
         { value: String(toolCalls), label: 'Actions executed' },
         { value: String(humanTransfers), label: 'Transfers to a human' },
-        { value: `${Math.round(data.callDur)}s`, label: 'Hello to resolved' },
+        { value: `${Math.round(data.callDur)}s`, label: handedOver ? 'Hello to hand-off' : 'Hello to resolved' },
       ],
     },
     outro: {

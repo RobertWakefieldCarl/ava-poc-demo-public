@@ -40,6 +40,7 @@ Usage: node render-call.mjs --recording <recording.json> [options]
   --crf <n>             x264 quality, lower is better (default: 25 — raise it to shrink the file)
   --png-frames          Lossless intermediate frames: ~12% smaller MP4, ~1.8x the render time
   --keep-frames         Leave the frames/ folder in place after encoding
+  --encode-only         Re-encode kept frames at a new --crf, skipping the render
 
 Requires Playwright (Chromium) and ffmpeg on PATH.
 `;
@@ -57,6 +58,7 @@ function parseArgs(argv) {
     else if (a === '--frames-only') out.framesOnly = true;
     else if (a === '--png-frames') out.pngFrames = true;
     else if (a === '--keep-frames') out.keepFrames = true;
+    else if (a === '--encode-only') out.encodeOnly = true;
     else if (a === '--help' || a === '-h') out.help = true;
   }
   return out;
@@ -147,7 +149,10 @@ async function main() {
       ['recap', m.recap + 4.5],
       ['outcome', m.outcome + 3.5],
       ['outro', m.outro + 3.0],
-      ['cta', m.cta + 4.5],
+      // Both are optional, and asking for a frame at `undefined + 4.5` renders NaN — which quietly
+      // produces a duplicate of whatever was on screen last, rather than failing.
+      ...(m.copilot ? [['copilot', m.copilot + 3.0]] : []),
+      ...(m.cta ? [['cta', m.cta + 4.5]] : []),
     ];
 
     for (const [name, t] of shots) {
@@ -229,26 +234,45 @@ async function main() {
   }
 
   const frameDir = path.join(outDir, 'frames');
-  fs.rmSync(frameDir, { recursive: true, force: true });
-  fs.mkdirSync(frameDir, { recursive: true });
-
   const frames = Math.ceil(total * FPS) + 1;
-  console.log(`render-call: ${frames} frames · ${total.toFixed(1)}s · ${W}x${H}`);
-  const started = Date.now();
-  for (let f = 0; f < frames; f += 1) {
-    await page.evaluate(`render(${f / FPS})`);
-    await page.screenshot({
-      path: path.join(frameDir, `${String(f).padStart(5, '0')}.${ext}`),
-      ...shotOpts,
-    });
-    if (f % 60 === 0 || f === frames - 1) {
-      const pct = ((f + 1) / frames) * 100;
-      const rate = (f + 1) / ((Date.now() - started) / 1000);
-      process.stdout.write(`\r  ${pct.toFixed(0)}%  ${rate.toFixed(1)} fps   `);
+
+  if (args.encodeOnly) {
+    // Changing the CRF does not change a single pixel of the frames, so re-rendering them to try a
+    // different file size would waste the expensive half of the job.
+    const have = fs.existsSync(frameDir) ? fs.readdirSync(frameDir).filter((f) => f.endsWith(ext)).length : 0;
+    if (!have) {
+      fail(
+        `--encode-only needs frames already in ${frameDir}, and there are none.\n`
+        + '  Render once with --keep-frames, then re-encode at any crf.',
+        66,
+      );
     }
+    if (have < frames) {
+      console.log(`  note: ${have} frames on disk but ${frames} expected — encoding what is there.`);
+    }
+    console.log(`render-call: re-encoding ${have} existing frames at crf ${args.crf}`);
+    await browser.close();
+  } else {
+    fs.rmSync(frameDir, { recursive: true, force: true });
+    fs.mkdirSync(frameDir, { recursive: true });
+
+    console.log(`render-call: ${frames} frames · ${total.toFixed(1)}s · ${W}x${H}`);
+    const started = Date.now();
+    for (let f = 0; f < frames; f += 1) {
+      await page.evaluate(`render(${f / FPS})`);
+      await page.screenshot({
+        path: path.join(frameDir, `${String(f).padStart(5, '0')}.${ext}`),
+        ...shotOpts,
+      });
+      if (f % 60 === 0 || f === frames - 1) {
+        const pct = ((f + 1) / frames) * 100;
+        const rate = (f + 1) / ((Date.now() - started) / 1000);
+        process.stdout.write(`\r  ${pct.toFixed(0)}%  ${rate.toFixed(1)} fps   `);
+      }
+    }
+    process.stdout.write('\n');
+    await browser.close();
   }
-  process.stdout.write('\n');
-  await browser.close();
 
   if (args.framesOnly) {
     console.log(`  frames in ${frameDir} — encode them yourself or re-run without --frames-only.`);
@@ -295,7 +319,8 @@ async function main() {
   console.log(`  poster  ${poster}`);
   if (mb > 12) {
     console.log(`  note: ${mb.toFixed(0)} MB is large to send. Re-encode smaller without re-rendering:`);
-    console.log(`        --crf ${Number(args.crf) + 3}  (frames are kept with --keep-frames)`);
+    console.log(`        --crf ${Number(args.crf) + 3} --encode-only`
+      + `${args.keepFrames ? '' : '   (needs --keep-frames on the render — this run did not)'}`);
   }
 }
 

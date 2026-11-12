@@ -174,6 +174,20 @@ Give those messages both forms. `speechText` is sent to ElevenLabs and keys the 
 Keep `speechText` verbatim from Cicero, and let `text` differ from it only by removing the tags.
 Omit `speechText` and nothing changes — `text` is spoken as before.
 
+### A person taking over: `role: "human"`
+
+A message with `role: "human"` is someone who picked up after a transfer. They are a third speaker:
+their own ElevenLabs voice (`voice.tts.humanVoice`, default `Charlotte`), their own on-screen tag
+(`DANA, LICENSING EXAMINER · LIVE AGENT` in green rather than `… · AI` in orange), and their own
+name in the transcript rail. They are panned to the agent's side of the call, because that is where
+they are, but nothing labels them as the AVA.
+
+An extra 1.6 s of air is added before their first line so the transfer does not sound like a cut,
+and the Agent Copilot scene slides in just before they speak. See
+[after-contact.md](after-contact.md) §4a for the full hand-off setup.
+
+### Expressive AVAs, continued
+
 Splitting the fields is still the clearer record of what the AVA returned, but forgetting to split
 them no longer leaks markup into the demo. Every display path — chat bubbles, video captions, the
 voice transcript rail and `transcript.md` — strips tags through `scripts/lib/voice-tags.mjs`, so
@@ -475,6 +489,13 @@ Empathy and proactive next-best-action are good secondary labels when they occur
 7. **CTA (9 s, dark) — only when `voice.phoneNumber` is set.** The whole slide exists to carry that
    number, so without one it is skipped and the video ends on the outro, 9 s shorter. Leave the
    number out unless the facilitator gave you a real line to publish.
+
+Plus one overlay inside the call, when the recording hands over to a person:
+
+- **Agent Copilot** — the receiving agent's screen, a light panel against the dark call UI. Slides
+  in 2.2 s before the person speaks and holds until just after. Carries the queue, the wrap-up
+  code, why it came to them, the reason for call and up to three extracted fields. Cards yield to
+  it rather than stacking under it. Built from `afterContact`; nothing to author.
    - partner logo
    - "TRY IT YOURSELF"
    - "Talk to the Agentic Virtual Agent / by phone."
@@ -561,6 +582,27 @@ It reads up to about 15% high, because both probes sit near a scene fade; treat 
 exceeds `--max-mb` (default 20), printing the options below. Agree the trade with the facilitator
 rather than silently shipping a 30 MB attachment or silently degrading their video. `--accept-size`
 proceeds anyway; `--estimate` reports and stops.
+
+#### Changing the size after you render
+
+The CRF does not change a single pixel of the intermediate frames, so trying a different size is an
+encode, not a render. Keep the frames on the first pass and re-encode as often as you like:
+
+```bash
+node "<SkillDir>/scripts/voice/render-call.mjs" --recording <recording.json> --keep-frames
+node "<SkillDir>/scripts/voice/render-call.mjs" --recording <recording.json> --crf 28 --encode-only
+```
+
+On a 327 s 1080p render that is 70 seconds instead of ten minutes, and took 20.9 MB to 16.6 MB.
+The frames are large — about 2 GB for that render — so delete `voice-build/frames/` when you have
+settled on a size.
+
+If you tune a single stage by hand like this, the recording's `voice` block still describes the
+previous build. Rewrite it from the artifacts on disk, without re-running anything:
+
+```bash
+node "<SkillDir>/scripts/build-voice-video.mjs" --recording <recording.json> --sync-only
+```
 
 #### Keeping the file small
 

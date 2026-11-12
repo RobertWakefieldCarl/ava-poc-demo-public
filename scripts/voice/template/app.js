@@ -43,6 +43,9 @@ window.INTRO = INTRO;
 window.MARKS = { intro: 0, answering: CROSSFADE, call: INTRO, callEnd: CALL_END,
   recap: T_RECAP, outcome: T_OUTCOME, outro: T_OUTRO, total: TOTAL };
 if (HAS_CTA) window.MARKS.cta = T_CTA;
+// Only present when somebody took over, and worth its own sample frame: it is the one scene built
+// from the After Contact data rather than from the call.
+if (S.copilot) window.MARKS.copilot = INTRO + S.copilot.at;
 
 /* ------------------------------------------------------------------- helpers */
 
@@ -160,6 +163,21 @@ const tileEls = [...document.querySelectorAll('#tiles .tile')];
 $('#outroLines').innerHTML =
   `${S.outro.line1}<br><span class="grad">${S.outro.line2}</span><br>${S.outro.line3}`;
 $('#outroPill span').textContent = S.outro.pill;
+
+const CP = S.copilot || null;
+if (CP) {
+  $('#cpAgent').textContent = CP.agent || 'Live agent';
+  $('#cpQueue').textContent = CP.queue || '—';
+  $('#cpCode').textContent = CP.wrapUpCode || '';
+  if (!CP.wrapUpCode) $('#cpCode').style.display = 'none';
+  $('#cpReason').textContent = CP.reason || '';
+  $('#cpReasonForCall').textContent = CP.reasonForCall || '';
+  $('#cpRows').innerHTML = (CP.rows || [])
+    .map((r) => `<div class="r"><span class="l">${r.label}</span><span class="v">${r.value}</span></div>`)
+    .join('');
+} else {
+  $('#copilot').style.display = 'none';
+}
 
 if (HAS_CTA) {
   $('#ctaEyebrow').textContent = S.cta.eyebrow;
@@ -313,11 +331,16 @@ window.render = function render(t) {
   }
   show(chipEl, chipV * callUi);
 
-  S.cards.forEach((c, i) => show(cardEls[i], vis(tc, c.at, c.until) * callUi));
+  // The copilot panel occupies the card slots, so cards yield to it rather than stacking under it.
+  const cpV = CP ? vis(tc, CP.at, CP.until, 0.45) : 0;
+  S.cards.forEach((c, i) => show(cardEls[i], vis(tc, c.at, c.until) * callUi * (1 - cpV)));
 
   // Who is speaking right now drives the avatars, the tag and the waveform colour.
   const seg = D.segs.find((s) => tc >= s.start && tc <= s.end);
-  const agentTalking = !!seg && seg.ch === 'R';
+  // `who` distinguishes the AVA from a person who took over; both sit on the agent's channel, and
+  // labelling a human turn as "· AI" would misrepresent the hand-off the video exists to show.
+  const humanTalking = !!seg && seg.who === 'human';
+  const agentTalking = !!seg && seg.ch === 'R' && !humanTalking;
   const callerTalking = !!seg && seg.ch === 'L';
 
   const agentAv = $('#agentAv');
@@ -325,7 +348,8 @@ window.render = function render(t) {
   agentAv.style.opacity = callUi;
   callerAv.style.opacity = callUi;
   agentAv.querySelector('.ring2').style.transform = `rotate(${t * 60}deg)`;
-  agentAv.style.boxShadow = agentTalking ? '0 0 70px 14px rgba(255,90,31,.55)' : 'none';
+  agentAv.style.boxShadow = agentTalking ? '0 0 70px 14px rgba(255,90,31,.55)'
+    : humanTalking ? '0 0 70px 14px rgba(54,201,154,.55)' : 'none';
   callerAv.style.boxShadow = callerTalking ? '0 0 70px 14px rgba(255,255,255,.4)' : 'none';
 
   const frame = Math.floor(clamp(tc, 0, D.callDur) * 30);
@@ -334,7 +358,8 @@ window.render = function render(t) {
     const wobble = 0.55 + 0.45 * Math.sin(t * 9 + i * 1.7);
     const h = level > 0.02 ? 10 + level * 78 * wobble : 6;
     b.style.height = `${h}px`;
-    b.style.background = agentTalking ? '#ff5a1f' : callerTalking ? '#fff' : '#8a93b5';
+    b.style.background = agentTalking ? '#ff5a1f'
+      : humanTalking ? '#36c99a' : callerTalking ? '#fff' : '#8a93b5';
     b.style.opacity = callUi;
   });
 
@@ -342,15 +367,24 @@ window.render = function render(t) {
 
   const tag = $('#tag');
   tag.style.opacity = (seg ? 1 : 0) * callUi;
-  tag.textContent = agentTalking
-    ? `${S.agentName.toUpperCase()} · AI`
-    : (S.callerName || 'Caller').toUpperCase();
-  tag.style.color = agentTalking ? '#ff9a5e' : '#ffffff';
+  tag.textContent = humanTalking
+    ? `${(seg.speaker || 'Live agent').toUpperCase()} · LIVE AGENT`
+    : agentTalking
+      ? `${S.agentName.toUpperCase()} · AI`
+      : (S.callerName || 'Caller').toUpperCase();
+  tag.style.color = humanTalking ? '#5ff0bd' : agentTalking ? '#ff9a5e' : '#ffffff';
 
   const capEl = $('#caption');
   const cap = CAPTIONS.find((c) => tc >= c.a && tc <= c.b + 0.35);
   if (cap) capEl.textContent = cap.text;
   show(capEl, (cap ? 1 : 0) * callUi, false);
+
+  // The agent's screen slides in as the transfer lands and stays up while they speak.
+  if (CP) {
+    const cp = $('#copilot');
+    cp.style.opacity = cpV * callUi;
+    cp.style.transform = `translateY(${(1 - cpV) * 40}px)`;
+  }
 
   const capsEl = $('#caps');
   let capsV = 0;

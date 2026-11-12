@@ -35,6 +35,8 @@ Usage: node build-voice-video.mjs --recording <recording.json> [options]
   --accept-size         Render regardless of the projection
   --crf <n>             Pass a quality level through to the encode (default: 25)
   --dry-run             Report the synthesis cost and stop
+  --sync-only           Refresh recording.json's voice block from the existing
+                        build artifacts, without re-running any stage
 
 Requires ELEVENLABS_API_KEY, Playwright (Chromium) and ffmpeg.
 `;
@@ -54,6 +56,7 @@ function parseArgs(argv) {
     else if (a === '--accept-size') out.acceptSize = true;
     else if (a === '--crf') out.crf = argv[++i];
     else if (a === '--dry-run') out.dryRun = true;
+    else if (a === '--sync-only') out.syncOnly = true;
     else if (a === '--help' || a === '-h') out.help = true;
   }
   return out;
@@ -99,6 +102,14 @@ function main() {
   const demoDir = path.dirname(recPath);
   const outDir = path.join(demoDir, 'voice-build');
 
+  // Tuning a single stage by hand leaves the recording's voice block describing the previous
+  // build. This re-reads the artifacts already on disk and rewrites the block from them, without
+  // re-spending the ten minutes the render costs.
+  if (args.syncOnly) {
+    syncVoiceBlock(recPath, demoDir, outDir);
+    return;
+  }
+
   const synthArgs = ['--recording', recPath];
   if (args.agentVoice) synthArgs.push('--agent-voice', args.agentVoice);
   if (args.callerVoice) synthArgs.push('--caller-voice', args.callerVoice);
@@ -139,8 +150,11 @@ function main() {
   ]);
   if (args.sheet) return;
 
-  // --- wire the finished video back into the recording --------------------------
+  syncVoiceBlock(recPath, demoDir, outDir);
+}
 
+/** Rewrite recording.json's voice block from the build artifacts on disk. */
+function syncVoiceBlock(recPath, demoDir, outDir) {
   const rec = JSON.parse(fs.readFileSync(recPath, 'utf8'));
   const data = readData(path.join(outDir, 'data.js'));
   const scenes = JSON.parse(fs.readFileSync(path.join(outDir, 'scenes.json'), 'utf8'));
@@ -166,7 +180,11 @@ function main() {
     outcomes: scenes.outcome.tiles.map((t) => ({ label: t.label, value: t.value })),
     transcript: data.segs.map((s) => ({
       at: +(INTRO + s.start).toFixed(1),
-      speaker: s.ch === 'R' ? 'agent' : 'caller',
+      // Keyed on the speaker rather than the channel: a person who took over after a hand-off
+      // shares the agent's channel, and attributing their words to the AVA is exactly the
+      // confusion the hand-off scene exists to dispel.
+      speaker: s.who === 'human' ? 'human' : s.who === 'caller' || s.ch === 'L' ? 'caller' : 'agent',
+      ...(s.speaker ? { speakerName: s.speaker } : {}),
       text: s.text,
     })),
   };

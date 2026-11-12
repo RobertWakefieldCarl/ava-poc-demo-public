@@ -35,6 +35,8 @@ const GAP_TURNAROUND = 0.45;
 const GAP_SAME_SPEAKER = 0.3;
 /** Extra pause before an agent turn that ran tools, so its action card has room to land. */
 const GAP_THINKING = 1.1;
+/** Extra pause while a transfer connects and a person picks up. */
+const GAP_HANDOVER = 1.6;
 
 const USAGE = `
 Usage: node synth-call.mjs --recording <recording.json> [options]
@@ -43,6 +45,7 @@ Usage: node synth-call.mjs --recording <recording.json> [options]
   --out-dir <dir>      Build folder (default: <recording dir>/voice-build)
   --agent-voice <v>    ElevenLabs voice name or id for the AVA
   --caller-voice <v>   ElevenLabs voice name or id for the caller
+  --human-voice <v>    Voice for a person who takes over after a hand-off
   --model <id>         ElevenLabs model (default: eleven_v4_turbo)
   --no-cache           Re-synthesize every line even if it is cached
   --dry-run            Report what would be synthesized and the cost, then stop
@@ -58,6 +61,7 @@ function parseArgs(argv) {
     else if (a === '--out-dir') out.outDir = argv[++i];
     else if (a === '--agent-voice') out.agentVoice = argv[++i];
     else if (a === '--caller-voice') out.callerVoice = argv[++i];
+    else if (a === '--human-voice') out.humanVoice = argv[++i];
     else if (a === '--model') out.model = argv[++i];
     else if (a === '--no-cache') out.cache = false;
     else if (a === '--dry-run') out.dryRun = true;
@@ -109,7 +113,9 @@ function findVoice(list, wanted) {
  * and fall back to any voice that is not already taken.
  */
 function autoVoice(list, gender, taken) {
-  const free = list.filter((v) => v.voice_id !== taken);
+  // `taken` is one id or several — two speakers sharing a voice would ruin the call.
+  const used = new Set([taken].flat().filter(Boolean));
+  const free = list.filter((v) => !used.has(v.voice_id));
   return (
     free.find((v) => v.labels?.gender === gender && v.labels?.use_case === 'conversational') ||
     free.find((v) => v.labels?.gender === gender) ||
@@ -290,7 +296,11 @@ function envelopes(pcm, segs) {
 function linesFrom(rec) {
   return (rec.messages || [])
     .map((m) => ({
-      ch: m.role === 'agent' ? 'R' : 'L',
+      // `who` picks the voice; `ch` only decides which side of the call it is panned to. A person
+      // who takes over after a hand-off speaks from the agent's side but in their own voice.
+      who: m.role === 'human' ? 'human' : m.role === 'agent' ? 'agent' : 'caller',
+      ch: m.role === 'agent' || m.role === 'human' ? 'R' : 'L',
+      speaker: m.role === 'human' ? String(m.speaker || 'Live agent') : null,
       text: String(m.speechText || m.text || '').trim(),
       display: stripVoiceTags(m.text || m.speechText || ''),
       hasActions: Array.isArray(m.actions) && m.actions.length > 0,
@@ -316,6 +326,7 @@ async function main() {
   const model = args.model || tts.model || 'eleven_v4_turbo';
   const wantAgent = args.agentVoice || tts.agentVoice || 'Rachel';
   const wantCaller = args.callerVoice || tts.callerVoice || 'Adam';
+  const wantHuman = args.humanVoice || tts.humanVoice || 'Charlotte';
 
   const lines = linesFrom(rec);
   if (!lines.length) fail('the recording has no messages to speak', 66);
@@ -323,7 +334,8 @@ async function main() {
   const chars = lines.reduce((n, l) => n + l.text.length, 0);
   if (args.dryRun) {
     console.log(`synth-call: ${lines.length} lines, ${chars} characters`);
-    console.log(`  voices  agent "${wantAgent}" · caller "${wantCaller}" · model ${model}`);
+    const human = lines.some((l) => l.who === 'human') ? ` · live agent "${wantHuman}"` : '';
+    console.log(`  voices  agent "${wantAgent}" · caller "${wantCaller}"${human} · model ${model}`);
     console.log('  Cached lines are free; only changed text is re-synthesized.');
     return;
   }
@@ -364,8 +376,18 @@ async function main() {
     gender: 'male',
     taken: agent.id,
   });
+  // Only resolved when somebody actually takes over, so a contained call costs no extra lookup.
+  const needsHuman = lines.some((l) => l.who === 'human');
+  const human = needsHuman
+    ? await resolveVoice(getKey, wantHuman, 'human', cache, {
+      explicit: !!(args.humanVoice || tts.humanVoice),
+      gender: 'female',
+      taken: [agent.id, caller.id],
+    })
+    : null;
   fs.writeFileSync(voicesFile, `${JSON.stringify(cache.known, null, 2)}\n`);
-  console.log(`synth-call: agent "${agent.name}" · caller "${caller.name}" · ${model}`);
+  console.log(`synth-call: agent "${agent.name}" · caller "${caller.name}"`
+    + `${human ? ` · live agent "${human.name}"` : ''} · ${model}`);
 
   const parts = [];
   const segs = [];
@@ -374,8 +396,9 @@ async function main() {
   let reused = 0;
 
   for (const [i, line] of lines.entries()) {
-    const voice = line.ch === 'R' ? agent : caller;
-    const settings = line.ch === 'R' ? tts.agentSettings : tts.callerSettings;
+    const voice = line.who === 'human' ? human : line.who === 'agent' ? agent : caller;
+    const settings = line.who === 'human' ? tts.humanSettings
+      : line.who === 'agent' ? tts.agentSettings : tts.callerSettings;
     const key = crypto
       .createHash('sha1')
       .update(JSON.stringify([line.text, voice.id, model, settings || null]))
@@ -395,8 +418,12 @@ async function main() {
 
     const prev = lines[i - 1];
     if (prev) {
-      let gap = prev.ch === line.ch ? GAP_SAME_SPEAKER : GAP_TURNAROUND;
-      if (line.ch === 'R' && line.hasActions) gap += GAP_THINKING;
+      // Keyed on the speaker, not the channel: the AVA handing over to a person is a change of
+      // speaker even though both sit on the agent's side of the call.
+      let gap = prev.who === line.who ? GAP_SAME_SPEAKER : GAP_TURNAROUND;
+      if (line.who !== 'caller' && line.hasActions) gap += GAP_THINKING;
+      // Somebody has to pick up. A straight turnaround makes the transfer sound like a cut.
+      if (line.who === 'human' && prev.who !== 'human') gap += GAP_HANDOVER;
       parts.push(silence(gap));
       cursor += gap;
     }
@@ -404,6 +431,8 @@ async function main() {
     const dur = pcm.length / 2 / SAMPLE_RATE;
     segs.push({
       ch: line.ch,
+      who: line.who,
+      ...(line.speaker ? { speaker: line.speaker } : {}),
       start: +cursor.toFixed(3),
       end: +(cursor + dur).toFixed(3),
       text: line.display,
