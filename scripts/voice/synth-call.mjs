@@ -304,8 +304,10 @@ function linesFrom(rec) {
       // who takes over — shares the agent's side of the call but speaks in its own voice.
       who: ['human', 'navigator', 'agent'].includes(m.role) ? m.role : 'caller',
       ch: ['human', 'navigator', 'agent'].includes(m.role) ? 'R' : 'L',
+      // On an agent line this names which AVA spoke, for a call routed through more than one.
       speaker: m.role === 'human' ? String(m.speaker || 'Live agent')
-        : m.role === 'navigator' ? String(m.speaker || navName) : null,
+        : m.role === 'navigator' ? String(m.speaker || navName)
+          : m.role === 'agent' && m.speaker ? String(m.speaker) : null,
       text: String(m.speechText || m.text || '').trim(),
       display: stripVoiceTags(m.text || m.speechText || ''),
       hasActions: Array.isArray(m.actions) && m.actions.length > 0,

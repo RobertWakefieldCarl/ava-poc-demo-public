@@ -191,23 +191,32 @@ function main() {
 
   // The routing flow that answered before the AVA. Its card has to stay up across the hand-over,
   // because the point being made is that one number reached the right assistant.
-  const navTurns = turns.filter((t) => t.msg.role === 'navigator');
   const nav = rec.navigator || {};
+  const navRoutes = nav.routes || [{ intent: nav.intent, routedTo: nav.routedTo }];
+  // One hop per run of consecutive routing turns: a caller who comes back to the front door
+  // mid-call gets a second card and a second decision, not one card covering both.
+  const navHops = [];
+  for (let i = 0; i < turns.length; i += 1) {
+    if (turns[i].msg.role !== 'navigator') continue;
+    const first = turns[i];
+    while (i + 1 < turns.length && turns[i + 1].msg.role === 'navigator') i += 1;
+    const last = turns[i];
+    const ava = turns.slice(i + 1).find((t) => t.msg.role !== 'navigator' && t.ch === 'R');
+    navHops.push({ first, last, avaAt: ava ? ava.start : last.end + 4 });
+  }
   let navigatorAt = null;
-  if (navTurns.length) {
-    const lastNav = navTurns[navTurns.length - 1];
-    const firstAva = turns.find((t) => t.msg.role !== 'navigator' && t.ch === 'R');
-    const avaAt = firstAva ? firstAva.start : lastNav.end + 4;
+  navHops.forEach((hop, n) => {
+    const route = navRoutes[n] || navRoutes[navRoutes.length - 1] || {};
     // What the flow classified is the caller's answer to it, which lands after it finishes
     // speaking and before the AVA takes over — not anything said earlier in the call.
     const heard = [...turns].reverse()
-      .find((t) => t.ch === 'L' && t.start > navTurns[0].start && t.start < avaAt);
+      .find((t) => t.ch === 'L' && t.start > hop.first.start && t.start < hop.avaAt);
     // The decision cannot be on screen before the caller has given it anything to decide from.
-    const decidedAt = heard ? heard.end : lastNav.end;
-    navigatorAt = +decidedAt.toFixed(2);
+    const decidedAt = heard ? heard.end : hop.last.end;
+    if (navigatorAt === null) navigatorAt = +decidedAt.toFixed(2);
     cards.push({
       at: +Math.max(0, decidedAt - 0.3).toFixed(2),
-      until: +(avaAt + 2.5).toFixed(2),
+      until: +(hop.avaAt + 2.5).toFixed(2),
       cls: 'ok',
       slot: 0,
       title: (nav.name || 'NAVIGATOR').toUpperCase(),
@@ -215,13 +224,13 @@ function main() {
         // Short enough to stay on one line: a wrapping row makes the card tall enough to crowd
         // the use-case card in the slot below it.
         heard ? { label: 'Caller said', value: clip(heard.text, 40) } : null,
-        nav.intent ? { label: 'Intent matched', value: nav.intent } : null,
-        { label: 'Routed to', value: nav.routedTo || voice.agentName || 'the virtual agent' },
+        route.intent ? { label: 'Intent matched', value: route.intent } : null,
+        { label: 'Routed to', value: route.routedTo || voice.agentName || 'the virtual agent' },
       ].filter(Boolean),
     });
-    addCap(decidedAt, avaAt + 2.0, 'Intent routing',
-      `One number, every assistant — routed to ${nav.routedTo || voice.agentName || 'the right agent'}`);
-  }
+    addCap(decidedAt, hop.avaAt + 2.0, 'Intent routing',
+      `One number, every assistant — routed to ${route.routedTo || voice.agentName || 'the right agent'}`);
+  });
 
   for (const [i, turn] of turns.entries()) {
     const actions = turn.msg.actions || [];
@@ -255,9 +264,17 @@ function main() {
       })),
     });
 
-    const guard = actions.find((a) => GUARD_RE.test(a.name || ''));
-    if (guard) {
-      addCap(at, until, 'Guardrails', `Verifies before reading the record · ${titleCase(guard.name)}`);
+    // A turn the author typed as a guardrail is one, whatever the rule happens to be called.
+    // Matching the name alone only ever found verification tools, so a refusal guardrail — the
+    // most demo-worthy kind — was being labelled as an ordinary action.
+    const refused = actions.find((a) => a.type === 'guardrail');
+    const verified = actions.find((a) => GUARD_RE.test(a.name || ''));
+    if (refused) {
+      addCap(at, until, 'Guardrails', refused.label
+        ? `${titleCase(refused.name)} · ${refused.label}`
+        : titleCase(refused.name));
+    } else if (verified) {
+      addCap(at, until, 'Guardrails', `Verifies before reading the record · ${titleCase(verified.name)}`);
     } else {
       addCap(at, until, 'Action execution', actions.map((a) => titleCase(a.name)).join(' · '));
     }
@@ -300,7 +317,7 @@ function main() {
     agentName: voice.agentName || 'Agentic Virtual Agent',
     agentRole: 'AI agent',
     callerName: voice.callerName || 'Caller',
-    navigatorName: navTurns.length ? nav.name || 'Navigator' : null,
+    navigatorName: navHops.length ? nav.name || 'Navigator' : null,
     // Lets the contact sheet sample the routing moment, which is otherwise over before the
     // first scheduled sample frame.
     navigatorAt,
@@ -325,7 +342,7 @@ function main() {
           `${useCases.length} request${useCases.length === 1 ? '' : 's'} in one conversation.`,
       // Names the flow that actually answers, so the pre-call card matches the first voice heard.
       inboundLabel: `Inbound call · ${customer.name || 'Customer'}`
-        + (navTurns.length ? ` — ${nav.name || 'Navigator'}` : ''),
+        + (navHops.length ? ` — ${nav.name || 'Navigator'}` : ''),
     },
     chips,
     cards,
@@ -373,7 +390,9 @@ function main() {
   console.log(`  chapters    ${chips.length} · cards ${cards.length} · capabilities ${shownCaps.length}`);
   console.log(`  capabilities shown: ${capsUsed.join(', ') || 'none detected'}`);
   if (scenes.navigatorName) {
-    console.log(`  navigator   ${scenes.navigatorName} → ${nav.routedTo || scenes.agentName}`);
+    const dests = navRoutes.map((r) => r.routedTo || scenes.agentName).join(' → then → ');
+    console.log(`  navigator   ${scenes.navigatorName}: ${navHops.length} hop`
+      + `${navHops.length === 1 ? '' : 's'} → ${dests}`);
   }
   if (!scenes.cta.phone) {
     console.log('  ending     Genesys outro (no voice.phoneNumber, so the phone CTA is skipped)');

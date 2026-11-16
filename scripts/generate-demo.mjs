@@ -175,13 +175,18 @@ function normalize(rec, baseDir, args) {
   const copy = CHANNELS[channelKey];
   const nav = navigator(rec, ava);
 
-  const messages = (rec.messages || []).map((m) => ({
-    useCaseId: m.useCaseId || null,
+  const messages = (rec.messages || []).map((m) => {
     // `human` is a person who took over after a hand-off, `navigator` the routing bot flow that
     // answered first — each rendered as its own speaker so a viewer never reads them as the AVA.
-    role: ['customer', 'system', 'human', 'navigator'].includes(m.role) ? m.role : 'agent',
-    speaker: m.role === 'human' ? String(m.speaker || 'Live agent')
-      : m.role === 'navigator' ? String(m.speaker || nav.name) : null,
+    const role = ['customer', 'system', 'human', 'navigator'].includes(m.role) ? m.role : 'agent';
+    return {
+    useCaseId: m.useCaseId || null,
+    role,
+    // On an agent turn this names *which* AVA spoke, for a call the Navigator routed through more
+    // than one. Left null for a single-AVA demo, where the widget header already says who it is.
+    speaker: role === 'human' ? String(m.speaker || 'Live agent')
+      : role === 'navigator' ? String(m.speaker || nav.name)
+        : m.speaker ? String(m.speaker) : null,
     // Expressive-TTS direction is for the voice engine, never for a reader.
     text: stripVoiceTags(m.text ?? m.speechText ?? ''),
     note: m.note || null,
@@ -193,7 +198,8 @@ function normalize(rec, baseDir, args) {
       output: a.output ?? null,
       status: a.status || 'ok',
     })),
-  }));
+    };
+  });
 
   const v = rec.voice || {};
   const videoRel = args.video || v.videoFile || null;
@@ -218,7 +224,8 @@ function normalize(rec, baseDir, args) {
           at: Number(t.at ?? t.start) || 0,
           speaker: ['caller', 'human', 'navigator'].includes(t.speaker) ? t.speaker : 'agent',
           speakerName: t.speaker === 'human' ? String(t.speakerName || 'Live agent')
-            : t.speaker === 'navigator' ? String(t.speakerName || nav.name) : null,
+            : t.speaker === 'navigator' ? String(t.speakerName || nav.name)
+              : t.speakerName ? String(t.speakerName) : null,
           text: stripVoiceTags(t.text ?? ''),
         })),
         outcomes: (v.outcomes || []).map((o) => ({ label: o.label, value: o.value })),
@@ -265,23 +272,49 @@ function normalize(rec, baseDir, args) {
     messages,
     voice,
     navigator: nav.used ? nav : null,
+    // Name the AVA on every agent bubble only when more than one answered, so a single-AVA demo
+    // keeps the cleaner untagged look and a two-AVA one is never ambiguous about who is speaking.
+    multiAgent: new Set(messages.filter((m) => m.role === 'agent').map((m) => m.speaker)).size > 1,
+    avas: (rec.avas || []).map((a) => ({
+      name: a.name,
+      version: a.version ?? null,
+      agentId: a.agentId || null,
+    })),
     afterContact: afterContact(rec),
   };
 }
 
 /**
- * The Architect bot flow that answers first, classifies the caller's intent and routes them to
- * this AVA. Reported as present only when the recording actually has `navigator` turns: a demo
- * must never grow a routing step the conversation did not perform.
+ * What to call the assistant side of the demo in the page title, header and footer. A call the
+ * Navigator routed through several AVAs has no single one to name, and heading the page with only
+ * the first tells a reader the second half of the conversation came from an assistant it did not.
+ */
+function avaLabel(d) {
+  return d.avas.length > 1 ? d.avas.map((a) => a.name).join(' + ') : d.ava.name;
+}
+
+/**
+ * The Architect bot flow that answers first, classifies the caller's intent and routes them on.
+ * Reported as present only when the recording actually has `navigator` turns: a demo must never
+ * grow a routing step the conversation did not perform.
+ *
+ * A caller can come back to the front door mid-call — ask about an order, then about ink — so the
+ * routes are a list, one per hop, in the order the conversation takes them. A single-route
+ * recording may write `intent` and `routedTo` at the top level instead.
  */
 function navigator(rec, ava) {
   const n = rec.navigator || {};
+  const routes = (n.routes || [{ intent: n.intent, routedTo: n.routedTo }])
+    .map((r) => ({
+      intent: r.intent || null,
+      routedTo: r.routedTo || ava.name || 'the virtual agent',
+    }));
   return {
     used: (rec.messages || []).some((m) => m.role === 'navigator'),
     name: n.name || 'Navigator',
     botFlow: n.botFlow || null,
-    intent: n.intent || null,
-    routedTo: n.routedTo || ava.name || 'the virtual agent',
+    intentCategory: n.intentCategory || null,
+    routes,
   };
 }
 
@@ -362,15 +395,25 @@ function speakerName(m, d) {
   if (m.role === 'system') return 'System';
   if (m.role === 'human') return m.speaker || 'Live agent';
   if (m.role === 'navigator') return m.speaker || (d.navigator && d.navigator.name) || 'Navigator';
-  return d.ava.name;
+  return m.speaker || d.ava.name;
 }
 
 function buildTranscript(d, mode) {
   const lines = [];
   lines.push(`# ${d.customer.name} — AVA proof-of-concept demo transcript`);
   lines.push('');
-  lines.push(`**Virtual agent:** ${d.ava.name}${d.ava.version ? ` (version ${d.ava.version})` : ''}  `);
-  if (d.ava.agentId) lines.push(`**Agent ID:** \`${d.ava.agentId}\`  `);
+  // A call the Navigator routed through several AVAs has no single "the" virtual agent, and
+  // naming only the first would misattribute half the transcript.
+  const agents = d.avas.length ? d.avas : [d.ava];
+  lines.push(`**Virtual agent${agents.length > 1 ? 's' : ''}:** ${agents
+    .map((a) => `${a.name}${a.version ? ` (version ${a.version})` : ''}`).join(', ')}  `);
+  for (const a of agents.filter((x) => x.agentId)) {
+    lines.push(`**Agent ID${agents.length > 1 ? ` — ${a.name}` : ''}:** \`${a.agentId}\`  `);
+  }
+  if (d.navigator) {
+    lines.push(`**Front door:** ${d.navigator.name}`
+      + `${d.navigator.botFlow ? ` (Architect bot flow \`${d.navigator.botFlow}\`)` : ''}  `);
+  }
   lines.push(`**Channel:** ${d.copy.transcriptChannel(d.customer.siteUrl)}  `);
   if (mode !== 'digital' && d.voice) lines.push('**Also included:** a recorded call video  ');
   if (mode !== 'voice') lines.push(`**Use cases covered:** ${d.useCases.length}  `);
@@ -468,8 +511,7 @@ function buildTranscript(d, mode) {
       lines.push('### Call transcript');
       lines.push('');
       for (const t of v.transcript) {
-        const who = t.speaker === 'caller' ? v.callerName
-          : t.speaker === 'human' || t.speaker === 'navigator' ? t.speakerName : v.agentName;
+        const who = t.speaker === 'caller' ? v.callerName : t.speakerName || v.agentName;
         lines.push(`**[${clock(t.at)}] ${who}:** ${t.text}`);
         lines.push('');
       }
@@ -713,8 +755,7 @@ function voicePanel(d, mode) {
         <span class="tl-at">${clock(t.at)}</span>
         <span class="tl-body">
           <span class="tl-who">${esc(t.speaker === 'caller' ? v.callerName
-            : t.speaker === 'human' || t.speaker === 'navigator' ? t.speakerName
-              : v.agentName)}</span>
+            : t.speakerName || v.agentName)}</span>
           <span class="tl-text">${esc(t.text)}</span>
         </span>
       </button>`
@@ -779,7 +820,7 @@ function voicePanel(d, mode) {
 }
 
 function buildHtml(d, mode) {
-  const title = `${d.customer.name} — ${d.ava.name} demo`;
+  const title = `${d.customer.name} — ${avaLabel(d)} demo`;
   const channelLabel =
     mode === 'both' ? `${d.copy.pill} + call video` : mode === 'voice' ? 'Call video' : d.copy.pill;
 
@@ -888,6 +929,12 @@ function buildHtml(d, mode) {
   .row.navigator .who::before{content:'';width:7px;height:7px;border-radius:50%;background:#4c3f9e}
   .row.navigator .bubble{background:#f1effc;color:var(--ink);border:1px solid #cdc6ee;
     border-bottom-left-radius:5px}
+  /* Only used when the Navigator routed through more than one AVA, so the reader can see which
+     assistant is answering without tracking the routing pills themselves. */
+  .row.bot.named{flex-direction:column;align-items:flex-start}
+  .row.bot.named .who{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 4px 3px;display:flex;align-items:center;gap:5px}
+  .row.bot.named .who::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--brand)}
   @keyframes pop{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 
   .chapter-sep{display:flex;align-items:center;gap:9px;margin:16px 2px 12px;color:#8496a9;font-size:11px;
@@ -1022,13 +1069,13 @@ function buildHtml(d, mode) {
 <body>
 
 <header class="demo-head">
-  <h1>${esc(d.customer.name)} — ${esc(d.ava.name)}</h1>
+  <h1>${esc(d.customer.name)} — ${esc(avaLabel(d))}</h1>
   <div class="sub">
     <span class="pill">Proof of concept</span>
     <span class="pill">${esc(channelLabel)}</span>
     ${mode !== 'voice' ? `<span class="pill">${d.useCases.length} use case${d.useCases.length === 1 ? '' : 's'}</span>` : ''}
     <span class="pill">Mock data</span>
-    ${d.ava.version ? `<span class="pill">v${esc(d.ava.version)}</span>` : ''}
+    ${d.avas.length > 1 || !d.ava.version ? '' : `<span class="pill">v${esc(d.ava.version)}</span>`}
     ${esc(headerLine)}
   </div>
 </header>
@@ -1037,7 +1084,8 @@ ${mode !== 'voice' ? digitalPanel(d, mode) : ''}
 ${mode !== 'digital' ? voicePanel(d, mode) : ''}
 
 <footer class="note">
-  ${esc(d.ava.name)}${d.ava.version ? ` v${esc(d.ava.version)}` : ''} · recorded ${esc(d.recordedAt)}<br>
+  ${esc((d.avas.length > 1 ? d.avas : [d.ava])
+    .map((a) => `${a.name}${a.version ? ` v${a.version}` : ''}`).join(' · '))} · recorded ${esc(d.recordedAt)}<br>
   ${esc(d.disclaimer)}
 </footer>
 
@@ -1104,8 +1152,8 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
       var row = document.createElement('div');
       row.className = 'row ' + (role === 'customer' ? 'me'
         : role === 'system' ? 'sys' : role === 'human' ? 'human'
-        : role === 'navigator' ? 'navigator' : 'bot');
-      if ((role === 'human' || role === 'navigator') && who){
+        : role === 'navigator' ? 'navigator' : who ? 'bot named' : 'bot');
+      if (who && role !== 'customer' && role !== 'system'){
         var tag = document.createElement('div');
         tag.className = 'who';
         tag.textContent = who;
@@ -1188,15 +1236,25 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
       return null;
     }
 
-    // The turn the Navigator hands the caller over on: the AVA's first words after the routing
-    // flow last spoke. Resolved once, so jumping straight to a later chapter never replays it.
-    var ROUTE_AT = (function(){
-      if (!D.navigator) return -1;
-      var last = -1;
-      for (var i = 0; i < D.messages.length; i++) if (D.messages[i].role === 'navigator') last = i;
-      if (last < 0) return -1;
-      for (var j = last + 1; j < D.messages.length; j++) if (D.messages[j].role === 'agent') return j;
-      return -1;
+    // Where each Navigator hand-over lands: the first AVA turn after each run of routing-flow
+    // turns, mapped to the route that hop took. Resolved once, keyed by turn index, so jumping
+    // straight to a later chapter replays that chapter's hand-over and no other.
+    var ROUTES = (function(){
+      var out = {};
+      if (!D.navigator) return out;
+      var hop = 0;
+      for (var i = 0; i < D.messages.length; i++){
+        if (D.messages[i].role !== 'navigator') continue;
+        // Walk past the rest of this run — several Navigator turns are still one hand-over.
+        while (i + 1 < D.messages.length && D.messages[i + 1].role !== 'agent') i++;
+        for (var j = i + 1; j < D.messages.length; j++){
+          if (D.messages[j].role !== 'agent') continue;
+          out[j] = D.navigator.routes[hop] || D.navigator.routes[D.navigator.routes.length - 1];
+          break;
+        }
+        hop++;
+      }
+      return out;
     })();
 
     function setChapter(id){
@@ -1290,11 +1348,11 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
             addBubble('navigator', m.text, m.speaker);
             await wait(readMs(m.text));
           } else {
-            // The hand-over from the routing flow to the AVA. Built from the navigator block, so
-            // it can only ever name the route the recording actually took.
-            if (j === ROUTE_AT){
-              addBubble('system', (D.navigator.intent ? 'Intent: ' + D.navigator.intent + ' · ' : '')
-                + 'Routed to ' + D.navigator.routedTo);
+            // The hand-over from the routing flow to an AVA. Built from the navigator block, so
+            // it can only ever name a route the recording actually took.
+            if (ROUTES[j]){
+              addBubble('system', (ROUTES[j].intent ? 'Intent: ' + ROUTES[j].intent + ' · ' : '')
+                + 'Routed to ' + ROUTES[j].routedTo);
               await wait(900);
             }
             for (var k = 0; k < m.actions.length; k++){
@@ -1307,7 +1365,7 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
             var t = showTyping();
             await wait(typeMs(m.text));
             t.remove();
-            addBubble('agent', m.text);
+            addBubble('agent', m.text, D.multiAgent ? (m.speaker || D.ava.name) : null);
             await wait(readMs(m.text));
           }
           setProgress(j + 1);
@@ -1355,9 +1413,14 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
       });
     });
 
-    // Idle state: greeting visible, waiting for the presenter to hit play.
+    // Idle state: whoever opens the conversation is visible, waiting for the presenter to hit
+    // play. With a Navigator in front, that is the routing flow rather than the AVA.
     var first = D.messages[0];
-    if (first && first.role === 'agent') addBubble('agent', first.text);
+    if (first && first.role === 'agent'){
+      addBubble('agent', first.text, D.multiAgent ? (first.speaker || D.ava.name) : null);
+    } else if (first && first.role === 'navigator'){
+      addBubble('navigator', first.text, first.speaker);
+    }
     if (D.useCases.length) setChapter(D.useCases[0].id);
     setPlayLabel();
 

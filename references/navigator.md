@@ -61,8 +61,52 @@ Two pieces: a top-level `navigator` block, and `role: "navigator"` turns at the 
 |-------|---------|
 | `name` | What the flow is called on screen and in the transcript. Defaults to `Navigator` |
 | `botFlow` | The Architect flow's real name in the org. Shown in the side rail, not spoken |
+| `intentCategory` | The Customer Intent category behind the flow. Optional, for the rail |
 | `intent` | The intent the flow matched. Omit it and the routing line just names the destination |
 | `routedTo` | Where it routed. Defaults to the AVA's name |
+
+## 2a. Routing to more than one AVA
+
+A caller can come back to the front door mid-call — ask where an order is, then order ink. Replace
+`intent`/`routedTo` with a `routes` array, one entry per hop, in the order the call takes them:
+
+```json
+"navigator": {
+  "name": "HP Front Door",
+  "botFlow": "AXL - Retail Tech - Navigator Bot",
+  "intentCategory": "AXL Retail Tech Front Door",
+  "routes": [
+    { "intent": "Check Order Status", "routedTo": "HP Order Assistant" },
+    { "intent": "Reorder Supplies or Replacement Items", "routedTo": "HP Supplies Assistant" }
+  ]
+}
+```
+
+A hop is a **run of consecutive `navigator` turns**, so a flow that says two things before routing
+is still one hop. Hop *n* takes `routes[n]`.
+
+Then name the AVA on each agent turn, because otherwise half the conversation is attributed to the
+wrong assistant:
+
+```json
+{ "useCaseId": "order-status", "role": "agent", "speaker": "HP Order Assistant", "text": "…" },
+{ "useCaseId": "supplies",     "role": "agent", "speaker": "HP Supplies Assistant", "text": "…" }
+```
+
+`speaker` on an agent turn is **only** read when more than one distinct AVA speaks. A single-AVA
+demo leaves it out and keeps the cleaner untagged bubbles. List the AVAs in a top-level `avas`
+array as well, so the transcript header names both with their versions and agent IDs:
+
+```json
+"avas": [
+  { "name": "HP Order Assistant", "agentId": "669bcb12-…", "version": "7.0" },
+  { "name": "HP Supplies Assistant", "agentId": "45355117-…", "version": "6.0" }
+]
+```
+
+Each AVA still has to be **recorded separately** through Cicero — one session per AVA, because
+that is how the real call works. Stitch the two transcripts together in `messages` in the order
+the caller experienced them.
 
 Write only what the flow *says*. The routing decision itself — "Intent: X · Routed to Y" — is
 rendered by the generator from this block, so writing it as a Navigator line duplicates it.
@@ -79,7 +123,9 @@ provided they say what the real flow says. Read the flow's prompt in Architect a
 **Digital.** The Navigator gets its own named, indigo-tinted bubble, visually distinct from both
 the AVA and a live agent. The caller answers in a normal bubble. Then a centred system pill —
 `Intent: New driver license · Routed to Utah DLD Assistant` — marks the hand-over, after which
-every remaining turn is the AVA's. `transcript.md` attributes the lines to the Navigator by name.
+every remaining turn is the AVA's. `transcript.md` attributes the lines to the Navigator by name,
+and names every AVA and the front door in its header. With more than one AVA, each agent bubble
+carries the assistant's name in the brand colour.
 
 **Voice.** The Navigator is synthesized in **its own voice**, defaulting to `Daniel` and
 overridable with `voice.tts.navigatorVoice` or `--navigator-voice`. Hearing one voice throughout
@@ -88,7 +134,8 @@ voice. On screen it gets a purple speaker tag (`UTAH DPS NAVIGATOR · ROUTING`),
 a routing card showing what it heard and where it sent the caller, an **Intent routing** capability
 banner, and its name on the pre-call "Answering…" card. `synth-call.mjs` also adds the hand-over
 pause before the AVA's first words, so the transition sounds like a connection being made rather
-than a cut.
+than a cut. Each hop gets its own card and banner, and the speaker tag names whichever AVA is
+talking.
 
 The contact sheet renders a `voice-navigator.jpg` frame whenever the recording has Navigator
 turns, so the routing moment can be checked without a full render.

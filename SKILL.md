@@ -262,6 +262,8 @@ the caller's answer. Give them their own use case so the rail opens on the routi
 Navigator speaks in its own voice and under its own name in both channels, and the generator adds
 the "routed to" moment itself — never write that line as dialogue. The block renders only when
 `navigator` turns exist, so a recording that kept the block but dropped the turns shows nothing.
+When the Navigator routes to **more than one AVA** in one call, use `navigator.routes` (one entry
+per hop), name the AVA on each agent turn with `speaker`, and list them all in `avas`.
 Full shape and what each channel renders: [navigator.md](references/navigator.md).
 
 When the conversation reaches a person, give the transferring agent turn an `escalation` action and

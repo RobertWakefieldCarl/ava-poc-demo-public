@@ -380,7 +380,8 @@ window.render = function render(t) {
     : navTalking
       ? `${(seg.speaker || S.navigatorName || 'Navigator').toUpperCase()} · ROUTING`
       : agentTalking
-        ? `${S.agentName.toUpperCase()} · AI`
+        // The segment names the AVA when the Navigator routed through more than one.
+        ? `${(seg.speaker || S.agentName).toUpperCase()} · AI`
         : (S.callerName || 'Caller').toUpperCase();
   tag.style.color = humanTalking ? '#5ff0bd' : navTalking ? '#b7acff'
     : agentTalking ? '#ff9a5e' : '#ffffff';

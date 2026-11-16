@@ -185,6 +185,7 @@ function syncVoiceBlock(recPath, demoDir, outDir) {
       // confusion the hand-off scene exists to dispel.
       speaker: s.who === 'human' || s.who === 'navigator' ? s.who
         : s.who === 'caller' || s.ch === 'L' ? 'caller' : 'agent',
+      // Carried for agent lines too, so the transcript rail names which AVA answered.
       ...(s.speaker ? { speakerName: s.speaker } : {}),
       text: s.text,
     })),
