@@ -173,13 +173,15 @@ function normalize(rec, baseDir, args) {
   const brand = customer.brandColor || '#1a56a8';
   const channelKey = CHANNELS[ava.channel] ? ava.channel : 'chat';
   const copy = CHANNELS[channelKey];
+  const nav = navigator(rec, ava);
 
   const messages = (rec.messages || []).map((m) => ({
     useCaseId: m.useCaseId || null,
-    // `human` is a person who took over after a hand-off — rendered as its own speaker so a viewer
-    // is never left thinking the AVA said it.
-    role: ['customer', 'system', 'human'].includes(m.role) ? m.role : 'agent',
-    speaker: m.role === 'human' ? String(m.speaker || 'Live agent') : null,
+    // `human` is a person who took over after a hand-off, `navigator` the routing bot flow that
+    // answered first — each rendered as its own speaker so a viewer never reads them as the AVA.
+    role: ['customer', 'system', 'human', 'navigator'].includes(m.role) ? m.role : 'agent',
+    speaker: m.role === 'human' ? String(m.speaker || 'Live agent')
+      : m.role === 'navigator' ? String(m.speaker || nav.name) : null,
     // Expressive-TTS direction is for the voice engine, never for a reader.
     text: stripVoiceTags(m.text ?? m.speechText ?? ''),
     note: m.note || null,
@@ -214,8 +216,9 @@ function normalize(rec, baseDir, args) {
         })),
         transcript: (v.transcript || []).map((t) => ({
           at: Number(t.at ?? t.start) || 0,
-          speaker: t.speaker === 'caller' ? 'caller' : t.speaker === 'human' ? 'human' : 'agent',
-          speakerName: t.speaker === 'human' ? String(t.speakerName || 'Live agent') : null,
+          speaker: ['caller', 'human', 'navigator'].includes(t.speaker) ? t.speaker : 'agent',
+          speakerName: t.speaker === 'human' ? String(t.speakerName || 'Live agent')
+            : t.speaker === 'navigator' ? String(t.speakerName || nav.name) : null,
           text: stripVoiceTags(t.text ?? ''),
         })),
         outcomes: (v.outcomes || []).map((o) => ({ label: o.label, value: o.value })),
@@ -261,7 +264,24 @@ function normalize(rec, baseDir, args) {
     recordedAt: rec.recordedAt || new Date().toISOString(),
     messages,
     voice,
+    navigator: nav.used ? nav : null,
     afterContact: afterContact(rec),
+  };
+}
+
+/**
+ * The Architect bot flow that answers first, classifies the caller's intent and routes them to
+ * this AVA. Reported as present only when the recording actually has `navigator` turns: a demo
+ * must never grow a routing step the conversation did not perform.
+ */
+function navigator(rec, ava) {
+  const n = rec.navigator || {};
+  return {
+    used: (rec.messages || []).some((m) => m.role === 'navigator'),
+    name: n.name || 'Navigator',
+    botFlow: n.botFlow || null,
+    intent: n.intent || null,
+    routedTo: n.routedTo || ava.name || 'the virtual agent',
   };
 }
 
@@ -341,6 +361,7 @@ function speakerName(m, d) {
   if (m.role === 'customer') return 'Customer';
   if (m.role === 'system') return 'System';
   if (m.role === 'human') return m.speaker || 'Live agent';
+  if (m.role === 'navigator') return m.speaker || (d.navigator && d.navigator.name) || 'Navigator';
   return d.ava.name;
 }
 
@@ -448,7 +469,7 @@ function buildTranscript(d, mode) {
       lines.push('');
       for (const t of v.transcript) {
         const who = t.speaker === 'caller' ? v.callerName
-          : t.speaker === 'human' ? t.speakerName : v.agentName;
+          : t.speaker === 'human' || t.speaker === 'navigator' ? t.speakerName : v.agentName;
         lines.push(`**[${clock(t.at)}] ${who}:** ${t.text}`);
         lines.push('');
       }
@@ -692,7 +713,8 @@ function voicePanel(d, mode) {
         <span class="tl-at">${clock(t.at)}</span>
         <span class="tl-body">
           <span class="tl-who">${esc(t.speaker === 'caller' ? v.callerName
-            : t.speaker === 'human' ? t.speakerName : v.agentName)}</span>
+            : t.speaker === 'human' || t.speaker === 'navigator' ? t.speakerName
+              : v.agentName)}</span>
           <span class="tl-text">${esc(t.text)}</span>
         </span>
       </button>`
@@ -858,6 +880,14 @@ function buildHtml(d, mode) {
   .row.human .who::before{content:'';width:7px;height:7px;border-radius:50%;background:#1d6f42}
   .row.human .bubble{background:#edf7f0;color:var(--ink);border:1px solid #bcdcc8;
     border-bottom-left-radius:5px}
+  /* The routing bot flow that answered first. Named and tinted for the same reason as a person:
+     it speaks before the AVA exists in the conversation, and must not be mistaken for it. */
+  .row.navigator{flex-direction:column;align-items:flex-start}
+  .row.navigator .who{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:#4c3f9e;margin:0 0 4px 3px;display:flex;align-items:center;gap:5px}
+  .row.navigator .who::before{content:'';width:7px;height:7px;border-radius:50%;background:#4c3f9e}
+  .row.navigator .bubble{background:#f1effc;color:var(--ink);border:1px solid #cdc6ee;
+    border-bottom-left-radius:5px}
   @keyframes pop{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 
   .chapter-sep{display:flex;align-items:center;gap:9px;margin:16px 2px 12px;color:#8496a9;font-size:11px;
@@ -924,6 +954,7 @@ function buildHtml(d, mode) {
   .tline.caller .tl-who{color:#8fa4bb}
   /* Same green the video uses for the person who took over, so the two read as one story. */
   .tline.human .tl-who{color:#4fc98a}
+  .tline.navigator .tl-who{color:#a79bff}
   .tl-text{line-height:1.4}
 
   /* ---- side rail ---- */
@@ -1072,8 +1103,9 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
     function addBubble(role, text, who){
       var row = document.createElement('div');
       row.className = 'row ' + (role === 'customer' ? 'me'
-        : role === 'system' ? 'sys' : role === 'human' ? 'human' : 'bot');
-      if (role === 'human' && who){
+        : role === 'system' ? 'sys' : role === 'human' ? 'human'
+        : role === 'navigator' ? 'navigator' : 'bot');
+      if ((role === 'human' || role === 'navigator') && who){
         var tag = document.createElement('div');
         tag.className = 'who';
         tag.textContent = who;
@@ -1155,6 +1187,17 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
       for (var i = 0; i < D.useCases.length; i++) if (D.useCases[i].id === id) return D.useCases[i];
       return null;
     }
+
+    // The turn the Navigator hands the caller over on: the AVA's first words after the routing
+    // flow last spoke. Resolved once, so jumping straight to a later chapter never replays it.
+    var ROUTE_AT = (function(){
+      if (!D.navigator) return -1;
+      var last = -1;
+      for (var i = 0; i < D.messages.length; i++) if (D.messages[i].role === 'navigator') last = i;
+      if (last < 0) return -1;
+      for (var j = last + 1; j < D.messages.length; j++) if (D.messages[j].role === 'agent') return j;
+      return -1;
+    })();
 
     function setChapter(id){
       var idx = -1;
@@ -1240,7 +1283,20 @@ ${mode !== 'digital' ? voicePanel(d, mode) : ''}
             ht.remove();
             addBubble('human', m.text, m.speaker);
             await wait(readMs(m.text));
+          } else if (m.role === 'navigator'){
+            var nt = showTyping();
+            await wait(typeMs(m.text));
+            nt.remove();
+            addBubble('navigator', m.text, m.speaker);
+            await wait(readMs(m.text));
           } else {
+            // The hand-over from the routing flow to the AVA. Built from the navigator block, so
+            // it can only ever name the route the recording actually took.
+            if (j === ROUTE_AT){
+              addBubble('system', (D.navigator.intent ? 'Intent: ' + D.navigator.intent + ' · ' : '')
+                + 'Routed to ' + D.navigator.routedTo);
+              await wait(900);
+            }
             for (var k = 0; k < m.actions.length; k++){
               var a = m.actions[k];
               var el = addAction(a);

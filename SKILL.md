@@ -71,6 +71,7 @@ travel with its `assets/` folder (or as `demo.zip`).
 | Driving the conversation, picking use cases, using mock data | [references/recording-guide.md](references/recording-guide.md) |
 | Capture troubleshooting, manual branding overrides | [references/branding-capture.md](references/branding-capture.md) |
 | Building the call video from call audio | [references/voice-video.md](references/voice-video.md) |
+| Showing a Navigator routing the caller in | [references/navigator.md](references/navigator.md) |
 | Sharing the skill and its API key with a team | [references/distributing.md](references/distributing.md) |
 | `recording.json` shape | [assets/recording-template.json](assets/recording-template.json) |
 
@@ -135,6 +136,20 @@ Resolve, in this order:
    and no extra conversation. Narrow to `--digital` only when the facilitator says so, or when
    Step 4v genuinely cannot run (no ElevenLabs key, no ffmpeg) — in which case say which
    prerequisite is missing rather than silently dropping the channel.
+3d. **Navigator** — in production most AVAs sit behind an Architect bot flow that answers the
+   published number, classifies the caller's intent and routes them on. **Ask the facilitator
+   whether to show that step**, because it is the difference between "we built an assistant" and
+   "we built the front door". Ask it as one question with the default stated:
+
+   > Should the demo open with a Navigator flow in front of the AVA — one published number that
+   > hears what the caller wants and routes them here? (Default: no, the demo starts at the AVA.)
+
+   If they say yes, get the **bot flow** from the org rather than inventing a name:
+   `list_resources(resourceType: 'botflow', name: '<search>')`, and offer what comes back. Record
+   the flow's real name, the intent it matches and what it routes to. If no flow exists yet, that
+   is a job for [ava-navigator](../ava-navigator/SKILL.md) — do not show a routing step the org
+   cannot demonstrate. Carry the answer into Step 2, because the Navigator adds two turns to the
+   front of the arc, and into Step 4 as the `navigator` block.
 4. **Use cases** — read `design-artifact.json` (`tools`, `role`) and any scenarios in
    `.ava-lifecycle/<slug>/test-cases/`. Propose the set to cover and let the facilitator adjust.
 5. **Mock data** — read the mock values the AVA will actually return, so the conversation uses inputs
@@ -240,6 +255,14 @@ back from the platform, so you write it and the page labels it as illustrative �
 authored text as captured output. `check` fails the build if the block claims a hand-off the
 conversation never makes. Full shape, provenance rules and the hand-off fields are in
 [after-contact.md](references/after-contact.md).
+
+If Step 0 agreed a Navigator, add the `navigator` block (`name`, `botFlow`, `intent`, `routedTo`)
+and open `messages` with two turns: a `role: "navigator"` turn asking what the caller needs, and
+the caller's answer. Give them their own use case so the rail opens on the routing step. The
+Navigator speaks in its own voice and under its own name in both channels, and the generator adds
+the "routed to" moment itself — never write that line as dialogue. The block renders only when
+`navigator` turns exist, so a recording that kept the block but dropped the turns shows nothing.
+Full shape and what each channel renders: [navigator.md](references/navigator.md).
 
 When the conversation reaches a person, give the transferring agent turn an `escalation` action and
 give the person a `role: "human"` turn with a `speaker` name, opening on the summary. They render as
@@ -410,6 +433,7 @@ the page can sit on screen while the presenter talks.
 - "Chat demo only, no video" (`--digital`)
 - "Make a product video from this call recording" (recorded-call route, then `--voice`)
 - "Add the call video to the demo we already built" (Step 4v, then re-generate with `--both`)
+- "Show the Navigator routing the caller in before the AVA answers" (Step 0 3d, then Steps 3–5)
 - "Re-record the demo — the AVA's escalation wording changed" (Steps 3–5)
 - "Regenerate the demo HTML" (Step 5 only, from the existing `recording.json`)
 
@@ -431,6 +455,9 @@ the page can sit on screen while the presenter talks.
   [voice-video.md](references/voice-video.md) §5.4.
 - **Never invent outcome metrics.** Capability banners and outcome tiles may only state what the
   call actually shows.
+- **Only show a Navigator the org actually has.** The `botFlow` name must be a real Architect flow
+  — confirm it with `list_resources`. A routing step the customer cannot be shown in their own org
+  is the one part of this demo they will ask to see live.
 - **Never pass authored text off as platform output.** The After Contact summary prose cannot be
   read back from Genesys, so it is written — keep `afterContact.source` honest (`authored`, not
   `captured`) and leave the provenance line on the panel. Equally, only show a hand-off the

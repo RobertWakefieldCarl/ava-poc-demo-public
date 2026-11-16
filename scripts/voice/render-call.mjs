@@ -151,6 +151,7 @@ async function main() {
       ['outro', m.outro + 3.0],
       // Both are optional, and asking for a frame at `undefined + 4.5` renders NaN — which quietly
       // produces a duplicate of whatever was on screen last, rather than failing.
+      ...(m.navigator ? [['navigator', m.navigator + 1.5]] : []),
       ...(m.copilot ? [['copilot', m.copilot + 3.0]] : []),
       ...(m.cta ? [['cta', m.cta + 4.5]] : []),
     ];

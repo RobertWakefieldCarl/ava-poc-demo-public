@@ -22,6 +22,17 @@
     "version": "3.0",
     "channel": "chat"
   },
+  "_navigator_comment": [
+    "Only when a Navigator bot flow answers in front of this AVA. Delete the block otherwise —",
+    "it renders only if the messages below actually contain role:'navigator' turns. 'botFlow' is",
+    "the Architect flow's real name in the org; pick it with list_resources(resourceType:'botflow')."
+  ],
+  "navigator": {
+    "name": "Acme Navigator",
+    "botFlow": "Acme Inbound Navigator",
+    "intent": "Benefits question",
+    "routedTo": "Acme Member Assistant"
+  },
   "widget": {
     "title": "Chat with Acme",
     "subtitle": "AI assistant · replies instantly",
@@ -35,6 +46,16 @@
   "recordedAt": "2026-01-01T00:00:00Z",
   "useCases": [
     {
+      "id": "routing",
+      "title": "Reach the right assistant",
+      "summary": "The Navigator flow classifies the caller's intent and routes to this AVA.",
+      "mockData": [
+        { "label": "Published number", "value": "+1 555 010 0100" },
+        { "label": "Intent matched", "value": "Benefits question" },
+        { "label": "Routed to", "value": "Acme Member Assistant" }
+      ]
+    },
+    {
       "id": "check-benefits",
       "title": "Check plan benefits",
       "summary": "Member authenticates and asks what their plan covers.",
@@ -46,6 +67,16 @@
     }
   ],
   "messages": [
+    {
+      "useCaseId": "routing",
+      "role": "navigator",
+      "text": "Thanks for calling Acme Dental. In a few words, tell me what you need."
+    },
+    {
+      "useCaseId": "routing",
+      "role": "customer",
+      "text": "I've got a question about what my plan covers."
+    },
     {
       "useCaseId": "check-benefits",
       "role": "agent",

@@ -183,7 +183,8 @@ function syncVoiceBlock(recPath, demoDir, outDir) {
       // Keyed on the speaker rather than the channel: a person who took over after a hand-off
       // shares the agent's channel, and attributing their words to the AVA is exactly the
       // confusion the hand-off scene exists to dispel.
-      speaker: s.who === 'human' ? 'human' : s.who === 'caller' || s.ch === 'L' ? 'caller' : 'agent',
+      speaker: s.who === 'human' || s.who === 'navigator' ? s.who
+        : s.who === 'caller' || s.ch === 'L' ? 'caller' : 'agent',
       ...(s.speaker ? { speakerName: s.speaker } : {}),
       text: s.text,
     })),

@@ -186,6 +186,18 @@ An extra 1.6 s of air is added before their first line so the transfer does not 
 and the Agent Copilot scene slides in just before they speak. See
 [after-contact.md](after-contact.md) §4a for the full hand-off setup.
 
+### The flow that answered first: `role: "navigator"`
+
+A message with `role: "navigator"` is the Architect bot flow that answered the published number
+and routed the caller here. It works the same way as `role: "human"` at the other end of the call:
+its own voice (`voice.tts.navigatorVoice`, default `Daniel`, never reused from another speaker),
+its own purple tag (`UTAH DPS NAVIGATOR · ROUTING`), its own name in the transcript rail, and the
+same 1.6 s of air before the AVA takes over so the hand-over sounds like a connection.
+
+`plan-scenes.mjs` adds a routing card, an **Intent routing** capability banner and the flow's name
+on the pre-call "Answering…" card — all from the recording's `navigator` block, and only when
+Navigator turns exist. Full setup: [navigator.md](navigator.md).
+
 ### Expressive AVAs, continued
 
 Splitting the fields is still the clearer record of what the AVA returned, but forgetting to split

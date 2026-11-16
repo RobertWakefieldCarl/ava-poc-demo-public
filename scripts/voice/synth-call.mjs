@@ -46,6 +46,7 @@ Usage: node synth-call.mjs --recording <recording.json> [options]
   --agent-voice <v>    ElevenLabs voice name or id for the AVA
   --caller-voice <v>   ElevenLabs voice name or id for the caller
   --human-voice <v>    Voice for a person who takes over after a hand-off
+  --navigator-voice <v> Voice for the routing bot flow that answers before the AVA
   --model <id>         ElevenLabs model (default: eleven_v4_turbo)
   --no-cache           Re-synthesize every line even if it is cached
   --dry-run            Report what would be synthesized and the cost, then stop
@@ -62,6 +63,7 @@ function parseArgs(argv) {
     else if (a === '--agent-voice') out.agentVoice = argv[++i];
     else if (a === '--caller-voice') out.callerVoice = argv[++i];
     else if (a === '--human-voice') out.humanVoice = argv[++i];
+    else if (a === '--navigator-voice') out.navigatorVoice = argv[++i];
     else if (a === '--model') out.model = argv[++i];
     else if (a === '--no-cache') out.cache = false;
     else if (a === '--dry-run') out.dryRun = true;
@@ -294,13 +296,16 @@ function envelopes(pcm, segs) {
  * still spoken, and still never displayed.
  */
 function linesFrom(rec) {
+  const navName = (rec.navigator && rec.navigator.name) || 'Navigator';
   return (rec.messages || [])
     .map((m) => ({
-      // `who` picks the voice; `ch` only decides which side of the call it is panned to. A person
-      // who takes over after a hand-off speaks from the agent's side but in their own voice.
-      who: m.role === 'human' ? 'human' : m.role === 'agent' ? 'agent' : 'caller',
-      ch: m.role === 'agent' || m.role === 'human' ? 'R' : 'L',
-      speaker: m.role === 'human' ? String(m.speaker || 'Live agent') : null,
+      // `who` picks the voice; `ch` only decides which side of the call it is panned to. Everything
+      // the caller hears from the business — the routing flow that answered, the AVA, and a person
+      // who takes over — shares the agent's side of the call but speaks in its own voice.
+      who: ['human', 'navigator', 'agent'].includes(m.role) ? m.role : 'caller',
+      ch: ['human', 'navigator', 'agent'].includes(m.role) ? 'R' : 'L',
+      speaker: m.role === 'human' ? String(m.speaker || 'Live agent')
+        : m.role === 'navigator' ? String(m.speaker || navName) : null,
       text: String(m.speechText || m.text || '').trim(),
       display: stripVoiceTags(m.text || m.speechText || ''),
       hasActions: Array.isArray(m.actions) && m.actions.length > 0,
@@ -327,6 +332,7 @@ async function main() {
   const wantAgent = args.agentVoice || tts.agentVoice || 'Rachel';
   const wantCaller = args.callerVoice || tts.callerVoice || 'Adam';
   const wantHuman = args.humanVoice || tts.humanVoice || 'Charlotte';
+  const wantNavigator = args.navigatorVoice || tts.navigatorVoice || 'Daniel';
 
   const lines = linesFrom(rec);
   if (!lines.length) fail('the recording has no messages to speak', 66);
@@ -335,7 +341,8 @@ async function main() {
   if (args.dryRun) {
     console.log(`synth-call: ${lines.length} lines, ${chars} characters`);
     const human = lines.some((l) => l.who === 'human') ? ` · live agent "${wantHuman}"` : '';
-    console.log(`  voices  agent "${wantAgent}" · caller "${wantCaller}"${human} · model ${model}`);
+    const nav = lines.some((l) => l.who === 'navigator') ? ` · navigator "${wantNavigator}"` : '';
+    console.log(`  voices  agent "${wantAgent}" · caller "${wantCaller}"${human}${nav} · model ${model}`);
     console.log('  Cached lines are free; only changed text is re-synthesized.');
     return;
   }
@@ -385,9 +392,19 @@ async function main() {
       taken: [agent.id, caller.id],
     })
     : null;
+  // The routing flow is a different system from the AVA, so it gets a different voice — hearing
+  // one voice throughout would hide the hand-over the Navigator step exists to show.
+  const navigatorVoice = lines.some((l) => l.who === 'navigator')
+    ? await resolveVoice(getKey, wantNavigator, 'navigator', cache, {
+      explicit: !!(args.navigatorVoice || tts.navigatorVoice),
+      gender: 'male',
+      taken: [agent.id, caller.id, human && human.id],
+    })
+    : null;
   fs.writeFileSync(voicesFile, `${JSON.stringify(cache.known, null, 2)}\n`);
   console.log(`synth-call: agent "${agent.name}" · caller "${caller.name}"`
-    + `${human ? ` · live agent "${human.name}"` : ''} · ${model}`);
+    + `${human ? ` · live agent "${human.name}"` : ''}`
+    + `${navigatorVoice ? ` · navigator "${navigatorVoice.name}"` : ''} · ${model}`);
 
   const parts = [];
   const segs = [];
@@ -396,9 +413,12 @@ async function main() {
   let reused = 0;
 
   for (const [i, line] of lines.entries()) {
-    const voice = line.who === 'human' ? human : line.who === 'agent' ? agent : caller;
+    const voice = line.who === 'human' ? human
+      : line.who === 'navigator' ? navigatorVoice
+        : line.who === 'agent' ? agent : caller;
     const settings = line.who === 'human' ? tts.humanSettings
-      : line.who === 'agent' ? tts.agentSettings : tts.callerSettings;
+      : line.who === 'navigator' ? tts.navigatorSettings
+        : line.who === 'agent' ? tts.agentSettings : tts.callerSettings;
     const key = crypto
       .createHash('sha1')
       .update(JSON.stringify([line.text, voice.id, model, settings || null]))
@@ -422,8 +442,10 @@ async function main() {
       // speaker even though both sit on the agent's side of the call.
       let gap = prev.who === line.who ? GAP_SAME_SPEAKER : GAP_TURNAROUND;
       if (line.who !== 'caller' && line.hasActions) gap += GAP_THINKING;
-      // Somebody has to pick up. A straight turnaround makes the transfer sound like a cut.
-      if (line.who === 'human' && prev.who !== 'human') gap += GAP_HANDOVER;
+      // A straight turnaround makes a transfer sound like a cut. Any move between two systems or
+      // people on the business's side is a connection being made, so it gets the extra pause:
+      // Navigator → AVA as much as AVA → person.
+      if (line.who !== 'caller' && prev.who !== 'caller' && prev.who !== line.who) gap += GAP_HANDOVER;
       parts.push(silence(gap));
       cursor += gap;
     }

@@ -189,6 +189,40 @@ function main() {
     }
   }
 
+  // The routing flow that answered before the AVA. Its card has to stay up across the hand-over,
+  // because the point being made is that one number reached the right assistant.
+  const navTurns = turns.filter((t) => t.msg.role === 'navigator');
+  const nav = rec.navigator || {};
+  let navigatorAt = null;
+  if (navTurns.length) {
+    const lastNav = navTurns[navTurns.length - 1];
+    const firstAva = turns.find((t) => t.msg.role !== 'navigator' && t.ch === 'R');
+    const avaAt = firstAva ? firstAva.start : lastNav.end + 4;
+    // What the flow classified is the caller's answer to it, which lands after it finishes
+    // speaking and before the AVA takes over — not anything said earlier in the call.
+    const heard = [...turns].reverse()
+      .find((t) => t.ch === 'L' && t.start > navTurns[0].start && t.start < avaAt);
+    // The decision cannot be on screen before the caller has given it anything to decide from.
+    const decidedAt = heard ? heard.end : lastNav.end;
+    navigatorAt = +decidedAt.toFixed(2);
+    cards.push({
+      at: +Math.max(0, decidedAt - 0.3).toFixed(2),
+      until: +(avaAt + 2.5).toFixed(2),
+      cls: 'ok',
+      slot: 0,
+      title: (nav.name || 'NAVIGATOR').toUpperCase(),
+      rows: [
+        // Short enough to stay on one line: a wrapping row makes the card tall enough to crowd
+        // the use-case card in the slot below it.
+        heard ? { label: 'Caller said', value: clip(heard.text, 40) } : null,
+        nav.intent ? { label: 'Intent matched', value: nav.intent } : null,
+        { label: 'Routed to', value: nav.routedTo || voice.agentName || 'the virtual agent' },
+      ].filter(Boolean),
+    });
+    addCap(decidedAt, avaAt + 2.0, 'Intent routing',
+      `One number, every assistant — routed to ${nav.routedTo || voice.agentName || 'the right agent'}`);
+  }
+
   for (const [i, turn] of turns.entries()) {
     const actions = turn.msg.actions || [];
 
@@ -257,6 +291,7 @@ function main() {
     Guardrails: 'Stayed inside its guardrails before touching customer data',
     'Business outcome': 'Resolved the call end to end, with no transfer',
     'Warm hand-off': 'Knew what not to answer, and handed over with the summary attached',
+    'Intent routing': 'Took one number and routed the caller to the right assistant',
   };
 
   const scenes = {
@@ -265,6 +300,10 @@ function main() {
     agentName: voice.agentName || 'Agentic Virtual Agent',
     agentRole: 'AI agent',
     callerName: voice.callerName || 'Caller',
+    navigatorName: navTurns.length ? nav.name || 'Navigator' : null,
+    // Lets the contact sheet sample the routing moment, which is otherwise over before the
+    // first scheduled sample frame.
+    navigatorAt,
     logo: fs.existsSync(path.join(path.dirname(recPath), 'assets', 'logo.svg'))
       ? 'assets/logo.svg'
       : customer.logoFile || null,
@@ -284,7 +323,9 @@ function main() {
         voice.summary ||
         `A caller reaches ${customer.name || 'the customer'} and the agentic virtual agent handles ` +
           `${useCases.length} request${useCases.length === 1 ? '' : 's'} in one conversation.`,
-      inboundLabel: `Inbound call · ${customer.name || 'Customer'}`,
+      // Names the flow that actually answers, so the pre-call card matches the first voice heard.
+      inboundLabel: `Inbound call · ${customer.name || 'Customer'}`
+        + (navTurns.length ? ` — ${nav.name || 'Navigator'}` : ''),
     },
     chips,
     cards,
@@ -331,6 +372,9 @@ function main() {
   console.log(`plan-scenes: wrote ${scenesPath}`);
   console.log(`  chapters    ${chips.length} · cards ${cards.length} · capabilities ${shownCaps.length}`);
   console.log(`  capabilities shown: ${capsUsed.join(', ') || 'none detected'}`);
+  if (scenes.navigatorName) {
+    console.log(`  navigator   ${scenes.navigatorName} → ${nav.routedTo || scenes.agentName}`);
+  }
   if (!scenes.cta.phone) {
     console.log('  ending     Genesys outro (no voice.phoneNumber, so the phone CTA is skipped)');
   }

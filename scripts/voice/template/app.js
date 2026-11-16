@@ -46,6 +46,8 @@ if (HAS_CTA) window.MARKS.cta = T_CTA;
 // Only present when somebody took over, and worth its own sample frame: it is the one scene built
 // from the After Contact data rather than from the call.
 if (S.copilot) window.MARKS.copilot = INTRO + S.copilot.at;
+// The routing hand-over happens in the opening seconds, before the first evenly-spaced sample.
+if (S.navigatorAt != null) window.MARKS.navigator = INTRO + S.navigatorAt;
 
 /* ------------------------------------------------------------------- helpers */
 
@@ -135,7 +137,9 @@ const bars = [...document.querySelectorAll('#bars i')];
 
 // Cards are built once and only their opacity changes per frame.
 // Slot 1 has to clear the avatars at y=880, so it sits high enough for a three-row card.
-const SLOT_TOP = S.format === '16x9' ? [60, 420] : [262, 548];
+// Landscape puts the chapter chip in this same right-hand column, so slot 0 starts below it —
+// at 60 the chip sat on top of the card's title whenever both were on screen.
+const SLOT_TOP = S.format === '16x9' ? [150, 510] : [262, 548];
 const cardEls = S.cards.map((c) => {
   const el = document.createElement('div');
   el.className = `card ${c.cls || ''}`;
@@ -337,10 +341,12 @@ window.render = function render(t) {
 
   // Who is speaking right now drives the avatars, the tag and the waveform colour.
   const seg = D.segs.find((s) => tc >= s.start && tc <= s.end);
-  // `who` distinguishes the AVA from a person who took over; both sit on the agent's channel, and
-  // labelling a human turn as "· AI" would misrepresent the hand-off the video exists to show.
+  // `who` separates the AVA from the routing flow that answered before it and from a person who
+  // took over after it. All three sit on the agent's channel, and labelling any of them "· AI"
+  // under the AVA's name would misrepresent exactly the hand-overs the video exists to show.
   const humanTalking = !!seg && seg.who === 'human';
-  const agentTalking = !!seg && seg.ch === 'R' && !humanTalking;
+  const navTalking = !!seg && seg.who === 'navigator';
+  const agentTalking = !!seg && seg.ch === 'R' && !humanTalking && !navTalking;
   const callerTalking = !!seg && seg.ch === 'L';
 
   const agentAv = $('#agentAv');
@@ -349,7 +355,8 @@ window.render = function render(t) {
   callerAv.style.opacity = callUi;
   agentAv.querySelector('.ring2').style.transform = `rotate(${t * 60}deg)`;
   agentAv.style.boxShadow = agentTalking ? '0 0 70px 14px rgba(255,90,31,.55)'
-    : humanTalking ? '0 0 70px 14px rgba(54,201,154,.55)' : 'none';
+    : humanTalking ? '0 0 70px 14px rgba(54,201,154,.55)'
+      : navTalking ? '0 0 70px 14px rgba(140,124,255,.55)' : 'none';
   callerAv.style.boxShadow = callerTalking ? '0 0 70px 14px rgba(255,255,255,.4)' : 'none';
 
   const frame = Math.floor(clamp(tc, 0, D.callDur) * 30);
@@ -359,7 +366,8 @@ window.render = function render(t) {
     const h = level > 0.02 ? 10 + level * 78 * wobble : 6;
     b.style.height = `${h}px`;
     b.style.background = agentTalking ? '#ff5a1f'
-      : humanTalking ? '#36c99a' : callerTalking ? '#fff' : '#8a93b5';
+      : humanTalking ? '#36c99a' : navTalking ? '#8c7cff'
+        : callerTalking ? '#fff' : '#8a93b5';
     b.style.opacity = callUi;
   });
 
@@ -369,10 +377,13 @@ window.render = function render(t) {
   tag.style.opacity = (seg ? 1 : 0) * callUi;
   tag.textContent = humanTalking
     ? `${(seg.speaker || 'Live agent').toUpperCase()} · LIVE AGENT`
-    : agentTalking
-      ? `${S.agentName.toUpperCase()} · AI`
-      : (S.callerName || 'Caller').toUpperCase();
-  tag.style.color = humanTalking ? '#5ff0bd' : agentTalking ? '#ff9a5e' : '#ffffff';
+    : navTalking
+      ? `${(seg.speaker || S.navigatorName || 'Navigator').toUpperCase()} · ROUTING`
+      : agentTalking
+        ? `${S.agentName.toUpperCase()} · AI`
+        : (S.callerName || 'Caller').toUpperCase();
+  tag.style.color = humanTalking ? '#5ff0bd' : navTalking ? '#b7acff'
+    : agentTalking ? '#ff9a5e' : '#ffffff';
 
   const capEl = $('#caption');
   const cap = CAPTIONS.find((c) => tc >= c.a && tc <= c.b + 0.35);
